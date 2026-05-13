@@ -11,6 +11,26 @@ You will need to run `pip3 install requests` in order to load that library into 
 
 You will need to run `pip3 install prettytable` in order to load that library into your folder. Then you can start with the authentication.py script.
 
+## Optional ReportLab Python Package
+
+The system package overview PDF script can create a basic PDF without extra packages. For a richer PDF layout, install ReportLab.
+
+```
+python3 -m pip install reportlab
+```
+
+## System Package Overview PDF
+
+Create a PDF overview report for a system package. The script calls `system-package/get_systempackage_by_systemkey_json.py` with the same required parameters, then writes `OpenRMFPro-System-Package-Overview-<systemKey>.pdf` using the returned `systemKey` value.
+
+```
+python3 system-package/get_systempackage_by_systemkey_overview_pdf.py \
+  https://example.openrmfpro.local \
+  my-application-key \
+  my-authorization-token \
+  <systemKey>
+```
+
 
 ## MacOS Installation
 
@@ -62,5 +82,7 @@ You may need to run this to setup requests and call the Python3 scripts correctl
 python3 -m venv .env
 source .env/bin/activate
 python3 -m pip install requests
+python3 -m pip install pandas
+python3 -m pip install reportlab
 ```
 
