@@ -1,0 +1,340 @@
+﻿Host/Device,Plugin Id,Plugin Name,Family,Severity,Report Name,Report Date,Status,Last Updated,Filename,Reason for Update,Synopsis,Plugin Output,Operating System,Plugin Type,Port,Protocol,Service,Publication Date,Description,Scanner,Scanner Version,Credentialed?
+WKS1-SOTERIA,298646,Microsoft Windows Notepad < 11.2510 Command Injection (February 2026),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:51 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,The Windows app installed on the remote host is affected by a command injection vulnerability.,"Path              : C:\Program Files\WindowsApps\Microsoft.WindowsNotepad_11.2507.26.0_x64__8wekyb3d8bbwe
+  Installed version : 11.2507.26.0
+  Fixed version     : 11.2510",Microsoft Windows 11 Pro Build 22631,local,0,tcp,general,2026/02/11,"The Windows 'Microsoft Windows Notepad' app installed on the remote host is prior to version 11.2510. It is, therefore, affected by a command injection vulnerability:
+
+  - Improper neutralization of special elements used in a command allows an unauthorized     attacker to execute code over a network. (CVE-2026-20841)
+
+Note that Nessus has not tested for this issue but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS1-SOTERIA,298554,KB5075941: Windows 11 version 23H2 Security Update (February 2026),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:51 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,The remote Windows host is affected by multiple vulnerabilities.,"The remote host is missing one of the following rollup KBs : 
+  - 5075941
+
+  - C:\Windows\system32\ntoskrnl.exe has not been patched.
+    Remote version : 10.0.22621.6199
+    Should be      : 10.0.22621.6630",Microsoft Windows 11 Pro Build 22631,local,445,tcp,cifs,2026/02/10,"The remote Windows host is missing security update 5075941. It is, therefore, affected by multiple vulnerabilities
+
+  - Protection mechanism failure in MSHTML Framework allows an unauthorized attacker to bypass a security     feature over a network. (CVE-2026-21513)
+
+  - Access of resource using incompatible type ('type confusion') in Desktop Window Manager allows an     authorized attacker to elevate privileges locally. (CVE-2026-21519)
+
+  - Heap-based buffer overflow in Windows Hyper-V allows an authorized attacker to execute code locally.
+    (CVE-2026-21244, CVE-2026-21248)
+
+Note that Nessus has not tested for these issues but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS1-SOTERIA,283472,KB5073455: Windows 11 version 23H2 Security Update (January 2026),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:51 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,The remote Windows host is affected by multiple vulnerabilities.,"The remote host is missing one of the following rollup KBs : 
+  - 5073455
+
+  - C:\Windows\system32\ntoskrnl.exe has not been patched.
+    Remote version : 10.0.22621.6199
+    Should be      : 10.0.22621.6489",Microsoft Windows 11 Pro Build 22631,local,445,tcp,cifs,2026/01/13,"The remote Windows host is missing security update 5073455. It is, therefore, affected by multiple vulnerabilities
+
+  - Untrusted pointer dereference in Windows Cloud Files Mini Filter Driver allows an authorized attacker to     elevate privileges locally. (CVE-2026-20857)
+
+  - An issue was discovered in Broadcom) LSI PCI-SV92EX Soft Modem Kernel Driver through 2.2.100.1 (aka     AGRSM64.sys). There is Local Privilege Escalation to SYSTEM via a Stack Overflow in RTLCopyMemory (IOCTL     0x1b2150). An attacker can exploit this to elevate privileges from a medium-integrity process to SYSTEM.
+    This can also be used to bypass kernel-level protections such as AV or PPL, because exploit code runs with     high-integrity privileges and can be used in coordinated BYOVD (bring your own vulnerable driver)     ransomware campaigns. (CVE-2023-31096)
+
+  - Windows Remote Procedure Call Interface Definition Language (IDL) Elevation of Privilege Vulnerability     (CVE-2026-20832)
+
+Note that Nessus has not tested for these issues but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS1-SOTERIA,277996,KB5071417: Windows 11 version 22H2 /  Windows 11 version 23H2 Security Update (December 2025),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:51 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,The remote Windows host is affected by multiple vulnerabilities.,"The remote host is missing one of the following rollup KBs : 
+  - 5071417
+
+  - C:\Windows\system32\ntoskrnl.exe has not been patched.
+    Remote version : 10.0.22621.6199
+    Should be      : 10.0.22621.6345",Microsoft Windows 11 Pro Build 22631,local,445,tcp,cifs,2025/12/09,"The remote Windows host is missing security update 5071417. It is, therefore, affected by multiple vulnerabilities
+
+  - Untrusted pointer dereference in Windows Routing and Remote Access Service (RRAS) allows an unauthorized     attacker to execute code over a network. (CVE-2025-62549)
+
+  - Heap-based buffer overflow in Windows Resilient File System (ReFS) allows an authorized attacker to     execute code over a network. (CVE-2025-62456)
+
+  - Out-of-bounds read in Windows Cloud Files Mini Filter Driver allows an authorized attacker to elevate     privileges locally. (CVE-2025-62457)
+
+Note that Nessus has not tested for these issues but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS1-SOTERIA,166555,WinVerifyTrust Signature Validation CVE-2013-3900 Mitigation (EnableCertPaddingCheck),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:51 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,The remote Windows host is potentially missing a mitigation for a remote code execution vulnerability.,"Nessus detected the following potentially insecure registry key configuration:
+    - Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.
+    - Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.",Microsoft Windows 11 Pro Build 22631,local,445,tcp,cifs,2022/10/26,"The remote system may be in a vulnerable state to CVE-2013-3900 due to a missing or misconfigured registry keys:
+    - HKEY_LOCAL_MACHINE\Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck
+    - HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck     An unauthenticated, remote attacker could exploit this, by sending specially crafted requests, to execute arbitrary code on an affected host.",ACAS / Nessus,10.10.1.202603040133,True
+WKS2-SOTERIA,298646,Microsoft Windows Notepad < 11.2510 Command Injection (February 2026),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/03/2026 01:22 PM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Updated from Upload of Patch Data file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM for user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,The Windows app installed on the remote host is affected by a command injection vulnerability.,"Path              : C:\Program Files\WindowsApps\Microsoft.WindowsNotepad_11.2507.26.0_x64__8wekyb3d8bbwe
+  Installed version : 11.2507.26.0
+  Fixed version     : 11.2510",Microsoft Windows 11 Pro Build 22631,local,0,tcp,general,2026/02/11,"The Windows 'Microsoft Windows Notepad' app installed on the remote host is prior to version 11.2510. It is, therefore, affected by a command injection vulnerability:
+
+  - Improper neutralization of special elements used in a command allows an unauthorized     attacker to execute code over a network. (CVE-2026-20841)
+
+Note that Nessus has not tested for this issue but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS2-SOTERIA,298554,KB5075941: Windows 11 version 23H2 Security Update (February 2026),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:51 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,The remote Windows host is affected by multiple vulnerabilities.,"The remote host is missing one of the following rollup KBs : 
+  - 5075941
+
+  - C:\Windows\system32\ntoskrnl.exe has not been patched.
+    Remote version : 10.0.22621.6199
+    Should be      : 10.0.22621.6630",Microsoft Windows 11 Pro Build 22631,local,445,tcp,cifs,2026/02/10,"The remote Windows host is missing security update 5075941. It is, therefore, affected by multiple vulnerabilities
+
+  - Protection mechanism failure in MSHTML Framework allows an unauthorized attacker to bypass a security     feature over a network. (CVE-2026-21513)
+
+  - Access of resource using incompatible type ('type confusion') in Desktop Window Manager allows an     authorized attacker to elevate privileges locally. (CVE-2026-21519)
+
+  - Heap-based buffer overflow in Windows Hyper-V allows an authorized attacker to execute code locally.
+    (CVE-2026-21244, CVE-2026-21248)
+
+Note that Nessus has not tested for these issues but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS2-SOTERIA,283472,KB5073455: Windows 11 version 23H2 Security Update (January 2026),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:51 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,The remote Windows host is affected by multiple vulnerabilities.,"The remote host is missing one of the following rollup KBs : 
+  - 5073455
+
+  - C:\Windows\system32\ntoskrnl.exe has not been patched.
+    Remote version : 10.0.22621.6199
+    Should be      : 10.0.22621.6489",Microsoft Windows 11 Pro Build 22631,local,445,tcp,cifs,2026/01/13,"The remote Windows host is missing security update 5073455. It is, therefore, affected by multiple vulnerabilities
+
+  - Untrusted pointer dereference in Windows Cloud Files Mini Filter Driver allows an authorized attacker to     elevate privileges locally. (CVE-2026-20857)
+
+  - An issue was discovered in Broadcom) LSI PCI-SV92EX Soft Modem Kernel Driver through 2.2.100.1 (aka     AGRSM64.sys). There is Local Privilege Escalation to SYSTEM via a Stack Overflow in RTLCopyMemory (IOCTL     0x1b2150). An attacker can exploit this to elevate privileges from a medium-integrity process to SYSTEM.
+    This can also be used to bypass kernel-level protections such as AV or PPL, because exploit code runs with     high-integrity privileges and can be used in coordinated BYOVD (bring your own vulnerable driver)     ransomware campaigns. (CVE-2023-31096)
+
+  - Windows Remote Procedure Call Interface Definition Language (IDL) Elevation of Privilege Vulnerability     (CVE-2026-20832)
+
+Note that Nessus has not tested for these issues but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS2-SOTERIA,277996,KB5071417: Windows 11 version 22H2 /  Windows 11 version 23H2 Security Update (December 2025),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:51 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,The remote Windows host is affected by multiple vulnerabilities.,"The remote host is missing one of the following rollup KBs : 
+  - 5071417
+
+  - C:\Windows\system32\ntoskrnl.exe has not been patched.
+    Remote version : 10.0.22621.6199
+    Should be      : 10.0.22621.6345",Microsoft Windows 11 Pro Build 22631,local,445,tcp,cifs,2025/12/09,"The remote Windows host is missing security update 5071417. It is, therefore, affected by multiple vulnerabilities
+
+  - Untrusted pointer dereference in Windows Routing and Remote Access Service (RRAS) allows an unauthorized     attacker to execute code over a network. (CVE-2025-62549)
+
+  - Heap-based buffer overflow in Windows Resilient File System (ReFS) allows an authorized attacker to     execute code over a network. (CVE-2025-62456)
+
+  - Out-of-bounds read in Windows Cloud Files Mini Filter Driver allows an authorized attacker to elevate     privileges locally. (CVE-2025-62457)
+
+Note that Nessus has not tested for these issues but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS2-SOTERIA,166555,WinVerifyTrust Signature Validation CVE-2013-3900 Mitigation (EnableCertPaddingCheck),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:51 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,The remote Windows host is potentially missing a mitigation for a remote code execution vulnerability.,"Nessus detected the following potentially insecure registry key configuration:
+    - Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.
+    - Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.",Microsoft Windows 11 Pro Build 22631,local,445,tcp,cifs,2022/10/26,"The remote system may be in a vulnerable state to CVE-2013-3900 due to a missing or misconfigured registry keys:
+    - HKEY_LOCAL_MACHINE\Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck
+    - HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck     An unauthenticated, remote attacker could exploit this, by sending specially crafted requests, to execute arbitrary code on an affected host.",ACAS / Nessus,10.10.1.202603040133,True
+WKS3-SOTERIA,250276,Microsoft Teams for Desktop < 25122.1415.3698.6812 Remote Code Execution (August 2025),Windows,3 - High,Patch scans of All WINDOWS,03/05/2026 09:54 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,Microsoft Teams for Desktop is affected by a remote code execution vulnerability.,"Path              : C:\Program Files\WindowsApps\MSTeams_1.0.0.0_x64__8wekyb3d8bbwe
+  Installed version : 1.0.0.0
+  Fixed version     : 25122.1415.3698.6812",Microsoft Windows 11 Pro Build 26100,local,0,tcp,general,2025/08/15,"The version of Microsoft Teams for Desktop on the remote Windows host is prior to 25122.1415.3698.6812 It is, therefore, affected by a remote code execution vulnerability:
+
+  - Heap-based buffer overflow in Microsoft Teams allows an unauthorized attacker to execute code over a network.
+    (CVE-2025-53783)
+
+Note that Nessus has not tested for this issue but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS3-SOTERIA,166555,WinVerifyTrust Signature Validation CVE-2013-3900 Mitigation (EnableCertPaddingCheck),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:54 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,The remote Windows host is potentially missing a mitigation for a remote code execution vulnerability.,"Nessus detected the following potentially insecure registry key configuration:
+    - Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.
+    - Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.",Microsoft Windows 11 Pro Build 26100,local,445,tcp,cifs,2022/10/26,"The remote system may be in a vulnerable state to CVE-2013-3900 due to a missing or misconfigured registry keys:
+    - HKEY_LOCAL_MACHINE\Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck
+    - HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck     An unauthenticated, remote attacker could exploit this, by sending specially crafted requests, to execute arbitrary code on an affected host.",ACAS / Nessus,10.10.1.202603040133,True
+WKS4-SOTERIA,166555,WinVerifyTrust Signature Validation CVE-2013-3900 Mitigation (EnableCertPaddingCheck),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:55 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,The remote Windows host is potentially missing a mitigation for a remote code execution vulnerability.,"Nessus detected the following potentially insecure registry key configuration:
+    - Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.
+    - Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.",Microsoft Windows 11 Pro Build 26100,local,445,tcp,cifs,2022/10/26,"The remote system may be in a vulnerable state to CVE-2013-3900 due to a missing or misconfigured registry keys:
+    - HKEY_LOCAL_MACHINE\Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck
+    - HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck     An unauthenticated, remote attacker could exploit this, by sending specially crafted requests, to execute arbitrary code on an affected host.",ACAS / Nessus,10.10.1.202603040133,True
+WKS5-SOTERIA,250276,Microsoft Teams for Desktop < 25122.1415.3698.6812 Remote Code Execution (August 2025),Windows,3 - High,Patch scans of All WINDOWS,03/05/2026 09:54 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,Microsoft Teams for Desktop is affected by a remote code execution vulnerability.,"Path              : C:\Program Files\WindowsApps\MSTeams_1.0.0.0_x64__8wekyb3d8bbwe
+  Installed version : 1.0.0.0
+  Fixed version     : 25122.1415.3698.6812",Microsoft Windows 11 Pro Build 26100,local,0,tcp,general,2025/08/15,"The version of Microsoft Teams for Desktop on the remote Windows host is prior to 25122.1415.3698.6812 It is, therefore, affected by a remote code execution vulnerability:
+
+  - Heap-based buffer overflow in Microsoft Teams allows an unauthorized attacker to execute code over a network.
+    (CVE-2025-53783)
+
+Note that Nessus has not tested for this issue but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS5-SOTERIA,166555,WinVerifyTrust Signature Validation CVE-2013-3900 Mitigation (EnableCertPaddingCheck),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 09:54 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,The remote Windows host is potentially missing a mitigation for a remote code execution vulnerability.,"Nessus detected the following potentially insecure registry key configuration:
+    - Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.
+    - Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.",Microsoft Windows 11 Pro Build 26100,local,445,tcp,cifs,2022/10/26,"The remote system may be in a vulnerable state to CVE-2013-3900 due to a missing or misconfigured registry keys:
+    - HKEY_LOCAL_MACHINE\Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck
+    - HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck     An unauthenticated, remote attacker could exploit this, by sending specially crafted requests, to execute arbitrary code on an affected host.",ACAS / Nessus,10.10.1.202603040133,True
+WKS6-SOTERIA,250276,Microsoft Teams for Desktop < 25122.1415.3698.6812 Remote Code Execution (August 2025),Windows,3 - High,Patch scans of All WINDOWS,03/05/2026 10:00 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,Microsoft Teams for Desktop is affected by a remote code execution vulnerability.,"Path              : C:\Program Files\WindowsApps\MSTeams_1.0.0.0_x64__8wekyb3d8bbwe
+  Installed version : 1.0.0.0
+  Fixed version     : 25122.1415.3698.6812",Microsoft Windows 11 Pro Build 26100,local,0,tcp,general,2025/08/15,"The version of Microsoft Teams for Desktop on the remote Windows host is prior to 25122.1415.3698.6812 It is, therefore, affected by a remote code execution vulnerability:
+
+  - Heap-based buffer overflow in Microsoft Teams allows an unauthorized attacker to execute code over a network.
+    (CVE-2025-53783)
+
+Note that Nessus has not tested for this issue but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS6-SOTERIA,166555,WinVerifyTrust Signature Validation CVE-2013-3900 Mitigation (EnableCertPaddingCheck),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 10:00 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,The remote Windows host is potentially missing a mitigation for a remote code execution vulnerability.,"Nessus detected the following potentially insecure registry key configuration:
+    - Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.
+    - Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.",Microsoft Windows 11 Pro Build 26100,local,445,tcp,cifs,2022/10/26,"The remote system may be in a vulnerable state to CVE-2013-3900 due to a missing or misconfigured registry keys:
+    - HKEY_LOCAL_MACHINE\Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck
+    - HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck     An unauthenticated, remote attacker could exploit this, by sending specially crafted requests, to execute arbitrary code on an affected host.",ACAS / Nessus,10.10.1.202603040133,True
+WKS7-SOTERIA,250276,Microsoft Teams for Desktop < 25122.1415.3698.6812 Remote Code Execution (August 2025),Windows,3 - High,Patch scans of All WINDOWS,03/05/2026 10:00 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,Microsoft Teams for Desktop is affected by a remote code execution vulnerability.,"Path              : C:\Program Files\WindowsApps\MSTeams_1.0.0.0_x64__8wekyb3d8bbwe
+  Installed version : 1.0.0.0
+  Fixed version     : 25122.1415.3698.6812",Microsoft Windows 11 Pro Build 26100,local,0,tcp,general,2025/08/15,"The version of Microsoft Teams for Desktop on the remote Windows host is prior to 25122.1415.3698.6812 It is, therefore, affected by a remote code execution vulnerability:
+
+  - Heap-based buffer overflow in Microsoft Teams allows an unauthorized attacker to execute code over a network.
+    (CVE-2025-53783)
+
+Note that Nessus has not tested for this issue but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS7-SOTERIA,166555,WinVerifyTrust Signature Validation CVE-2013-3900 Mitigation (EnableCertPaddingCheck),Windows : Microsoft Bulletins,3 - High,Patch scans of All WINDOWS,03/05/2026 10:00 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,The remote Windows host is potentially missing a mitigation for a remote code execution vulnerability.,"Nessus detected the following potentially insecure registry key configuration:
+    - Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.
+    - Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck is not present in the registry.",Microsoft Windows 11 Pro Build 26100,local,445,tcp,cifs,2022/10/26,"The remote system may be in a vulnerable state to CVE-2013-3900 due to a missing or misconfigured registry keys:
+    - HKEY_LOCAL_MACHINE\Software\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck
+    - HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Cryptography\Wintrust\Config\EnableCertPaddingCheck     An unauthenticated, remote attacker could exploit this, by sending specially crafted requests, to execute arbitrary code on an affected host.",ACAS / Nessus,10.10.1.202603040133,True
+SOT-WIN2K22-SQL,132101,Windows Speculative Execution Configuration Check,Windows,2 - Medium,Patch scans of All WINDOWS,03/05/2026 09:51 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,The remote host has not properly mitigated a series of speculative execution vulnerabilities.,"Current Settings:
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverrideMask: Not Set
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverride: Not Set
+
+-----------------------------------
+
+Recommended Settings 1:
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverrideMask: 0x00000003 (3)
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverride: 0x00000048 (72)
+  CVEs Covered:
+    CVE-2017-5715, CVE-2017-5753, CVE-2017-5754, CVE-2018-3615, CVE-2018-3620,
+    CVE-2018-3639, CVE-2018-3646, CVE-2018-11091, CVE-2018-12126, CVE-2018-12127,
+    CVE-2018-12130, CVE-2019-11135
+  Note: Hyper-Threading enabled.
+
+-----------------------------------
+
+Recommended Settings 2:
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverrideMask: 0x00000003 (3)
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverride: 0x00002048 (8264)
+  CVEs Covered:
+    CVE-2017-5715, CVE-2017-5753, CVE-2017-5754, CVE-2018-3615, CVE-2018-3620,
+    CVE-2018-3639, CVE-2018-3646, CVE-2018-11091, CVE-2018-12126, CVE-2018-12127,
+    CVE-2018-12130, CVE-2019-11135
+  Note: Hyper-Threading disabled.
+
+-----------------------------------
+
+Recommended Settings 3:
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverrideMask: 0x00000003 (3)
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverride: 0x00802048 (8396872)
+  CVEs Covered:
+    CVE-2017-5715, CVE-2017-5753, CVE-2017-5754, CVE-2018-3615, CVE-2018-3620,
+    CVE-2018-3639, CVE-2018-3646, CVE-2018-11091, CVE-2018-12126, CVE-2018-12127,
+    CVE-2018-12130, CVE-2019-11135, CVE-2022-0001
+  Note: Hyper-Threading disabled.
+
+-----------------------------------
+
+Recommended Settings 4:
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverrideMask: 0x00000003 (3)
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverride: 0x00800048 (8388680)
+  CVEs Covered:
+    CVE-2017-5715, CVE-2017-5753, CVE-2017-5754, CVE-2018-3615, CVE-2018-3620,
+    CVE-2018-3639, CVE-2018-3646, CVE-2018-11091, CVE-2018-12126, CVE-2018-12127,
+    CVE-2018-12130, CVE-2019-11135, CVE-2022-0001
+  Note: Hyper-Threading enabled.",Microsoft Windows Server 2022 Standard Build 20348,local,445,tcp,cifs,2019/12/18,"The remote host has not properly mitigated a series of known speculative execution vulnerabilities. It, therefore, may be affected by :
+  - Branch Target Injection (BTI) (CVE-2017-5715)
+  - Bounds Check Bypass (BCB) (CVE-2017-5753)
+  - Rogue Data Cache Load (RDCL) (CVE-2017-5754)
+  - Rogue System Register Read (RSRE) (CVE-2018-3640)
+  - Speculative Store Bypass (SSB) (CVE-2018-3639)
+  - L1 Terminal Fault (L1TF) (CVE-2018-3615, CVE-2018-3620, CVE-2018-3646)
+  - Microarchitectural Data Sampling Uncacheable Memory (MDSUM) (CVE-2019-11091)
+  - Microarchitectural Store Buffer Data Sampling (MSBDS) (CVE-2018-12126)
+  - Microarchitectural Load Port Data Sampling (MLPDS) (CVE-2018-12127)
+  - Microarchitectural Fill Buffer Data Sampling (MFBDS) (CVE-2018-12130)
+  - TSX Asynchronous Abort (TAA) (CVE-2019-11135)
+  - Intel Branch History Injection (BHI) (CVE-2022-0001)",ACAS / Nessus,10.10.1.202603040133,True
+SOT-WIN2K22-WEB,132101,Windows Speculative Execution Configuration Check,Windows,2 - Medium,Patch scans of All WINDOWS,03/05/2026 09:51 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,The remote host has not properly mitigated a series of speculative execution vulnerabilities.,"Current Settings:
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverrideMask: Not Set
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverride: Not Set
+
+-----------------------------------
+
+Recommended Settings 1:
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverrideMask: 0x00000003 (3)
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverride: 0x00000048 (72)
+  CVEs Covered:
+    CVE-2017-5715, CVE-2017-5753, CVE-2017-5754, CVE-2018-3615, CVE-2018-3620,
+    CVE-2018-3639, CVE-2018-3646, CVE-2018-11091, CVE-2018-12126, CVE-2018-12127,
+    CVE-2018-12130, CVE-2019-11135
+  Note: Hyper-Threading enabled.
+
+-----------------------------------
+
+Recommended Settings 2:
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverrideMask: 0x00000003 (3)
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverride: 0x00002048 (8264)
+  CVEs Covered:
+    CVE-2017-5715, CVE-2017-5753, CVE-2017-5754, CVE-2018-3615, CVE-2018-3620,
+    CVE-2018-3639, CVE-2018-3646, CVE-2018-11091, CVE-2018-12126, CVE-2018-12127,
+    CVE-2018-12130, CVE-2019-11135
+  Note: Hyper-Threading disabled.
+
+-----------------------------------
+
+Recommended Settings 3:
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverrideMask: 0x00000003 (3)
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverride: 0x00802048 (8396872)
+  CVEs Covered:
+    CVE-2017-5715, CVE-2017-5753, CVE-2017-5754, CVE-2018-3615, CVE-2018-3620,
+    CVE-2018-3639, CVE-2018-3646, CVE-2018-11091, CVE-2018-12126, CVE-2018-12127,
+    CVE-2018-12130, CVE-2019-11135, CVE-2022-0001
+  Note: Hyper-Threading disabled.
+
+-----------------------------------
+
+Recommended Settings 4:
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverrideMask: 0x00000003 (3)
+  - SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\
+    FeatureSettingsOverride: 0x00800048 (8388680)
+  CVEs Covered:
+    CVE-2017-5715, CVE-2017-5753, CVE-2017-5754, CVE-2018-3615, CVE-2018-3620,
+    CVE-2018-3639, CVE-2018-3646, CVE-2018-11091, CVE-2018-12126, CVE-2018-12127,
+    CVE-2018-12130, CVE-2019-11135, CVE-2022-0001
+  Note: Hyper-Threading enabled.",Microsoft Windows Server 2022 Standard Build 20348,local,445,tcp,cifs,2019/12/18,"The remote host has not properly mitigated a series of known speculative execution vulnerabilities. It, therefore, may be affected by :
+  - Branch Target Injection (BTI) (CVE-2017-5715)
+  - Bounds Check Bypass (BCB) (CVE-2017-5753)
+  - Rogue Data Cache Load (RDCL) (CVE-2017-5754)
+  - Rogue System Register Read (RSRE) (CVE-2018-3640)
+  - Speculative Store Bypass (SSB) (CVE-2018-3639)
+  - L1 Terminal Fault (L1TF) (CVE-2018-3615, CVE-2018-3620, CVE-2018-3646)
+  - Microarchitectural Data Sampling Uncacheable Memory (MDSUM) (CVE-2019-11091)
+  - Microarchitectural Store Buffer Data Sampling (MSBDS) (CVE-2018-12126)
+  - Microarchitectural Load Port Data Sampling (MLPDS) (CVE-2018-12127)
+  - Microarchitectural Fill Buffer Data Sampling (MFBDS) (CVE-2018-12130)
+  - TSX Asynchronous Abort (TAA) (CVE-2019-11135)
+  - Intel Branch History Injection (BHI) (CVE-2022-0001)",ACAS / Nessus,10.10.1.202603040133,True
+WKS3-SOTERIA,264898,Microsoft Teams for Desktop < 25163.3611.3774.6315 Elevation of Privilege (July 2025),Windows,1 - Low,Patch scans of All WINDOWS,03/05/2026 09:54 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:39 AM,Microsoft Teams for Desktop is affected by an elevation of privilege vulnerability.,"Path              : C:\Program Files\WindowsApps\MSTeams_1.0.0.0_x64__8wekyb3d8bbwe
+  Installed version : 1.0.0.0
+  Fixed version     : 25163.3611.3774.6315",Microsoft Windows 11 Pro Build 26100,local,0,tcp,general,2025/09/16,"The version of Microsoft Teams for Desktop on the remote Windows host is prior to 25163.3611.3774.6315 It is, therefore, affected by an elevation of privilege vulnerability:
+
+  - Improper handling of insufficient permissions or privileges in Microsoft Teams allows an authorized     attacker to elevate privileges over a network. (CVE-2025-49731)
+
+Note that Nessus has not tested for this issue but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS5-SOTERIA,264898,Microsoft Teams for Desktop < 25163.3611.3774.6315 Elevation of Privilege (July 2025),Windows,1 - Low,Patch scans of All WINDOWS,03/05/2026 09:54 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,Microsoft Teams for Desktop is affected by an elevation of privilege vulnerability.,"Path              : C:\Program Files\WindowsApps\MSTeams_1.0.0.0_x64__8wekyb3d8bbwe
+  Installed version : 1.0.0.0
+  Fixed version     : 25163.3611.3774.6315",Microsoft Windows 11 Pro Build 26100,local,0,tcp,general,2025/09/16,"The version of Microsoft Teams for Desktop on the remote Windows host is prior to 25163.3611.3774.6315 It is, therefore, affected by an elevation of privilege vulnerability:
+
+  - Improper handling of insufficient permissions or privileges in Microsoft Teams allows an authorized     attacker to elevate privileges over a network. (CVE-2025-49731)
+
+Note that Nessus has not tested for this issue but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS6-SOTERIA,264898,Microsoft Teams for Desktop < 25163.3611.3774.6315 Elevation of Privilege (July 2025),Windows,1 - Low,Patch scans of All WINDOWS,03/05/2026 10:00 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,Microsoft Teams for Desktop is affected by an elevation of privilege vulnerability.,"Path              : C:\Program Files\WindowsApps\MSTeams_1.0.0.0_x64__8wekyb3d8bbwe
+  Installed version : 1.0.0.0
+  Fixed version     : 25163.3611.3774.6315",Microsoft Windows 11 Pro Build 26100,local,0,tcp,general,2025/09/16,"The version of Microsoft Teams for Desktop on the remote Windows host is prior to 25163.3611.3774.6315 It is, therefore, affected by an elevation of privilege vulnerability:
+
+  - Improper handling of insufficient permissions or privileges in Microsoft Teams allows an authorized     attacker to elevate privileges over a network. (CVE-2025-49731)
+
+Note that Nessus has not tested for this issue but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+WKS7-SOTERIA,264898,Microsoft Teams for Desktop < 25163.3611.3774.6315 Elevation of Privilege (July 2025),Windows,1 - Low,Patch scans of All WINDOWS,03/05/2026 10:00 AM,Open,05/12/2026 06:23 AM,20260305-All-Machines.nessus,Initial Upload of Patch Data in file Patch scans of All WINDOWS report date 3/5/2026 9:52:58 AM by user OpenRMF Professional Administrator (openrmfproadmin) on 05/12/2026 06:23:38 AM,Microsoft Teams for Desktop is affected by an elevation of privilege vulnerability.,"Path              : C:\Program Files\WindowsApps\MSTeams_1.0.0.0_x64__8wekyb3d8bbwe
+  Installed version : 1.0.0.0
+  Fixed version     : 25163.3611.3774.6315",Microsoft Windows 11 Pro Build 26100,local,0,tcp,general,2025/09/16,"The version of Microsoft Teams for Desktop on the remote Windows host is prior to 25163.3611.3774.6315 It is, therefore, affected by an elevation of privilege vulnerability:
+
+  - Improper handling of insufficient permissions or privileges in Microsoft Teams allows an authorized     attacker to elevate privileges over a network. (CVE-2025-49731)
+
+Note that Nessus has not tested for this issue but has instead relied only on the application's self-reported version number.",ACAS / Nessus,10.10.1.202603040133,True
+,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,

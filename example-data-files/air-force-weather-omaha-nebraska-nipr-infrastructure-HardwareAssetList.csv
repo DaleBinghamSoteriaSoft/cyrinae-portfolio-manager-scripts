@@ -1,0 +1,17 @@
+﻿Device,Operating System,Virtual Server?,IP Address(es),MAC Address(es),Firmware,Manufacturer,Model Number,Serial Number,Asset Name,Purpose,Description,Tags,Patch Scan?,Checklist?
+SOT-WIN2K22-01,Microsoft Windows Server 2022 Standard Build 20348,,192.168.40.169,00:50:56:2F:AE:28,,,,,,,,,X,X
+SOT-WIN2K22-02,Microsoft Windows Server 2022 Standard Build 20348,,192.168.40.170,00:50:56:2E:96:56,,,,,,,,,X,X
+SOT-WIN2K22-SQL,Microsoft Windows Server 2022 Standard Build 20348,,192.168.40.168,00:0C:29:29:5B:86,,,,,,,,,X,X
+SOT-WIN2K22-SQL-SQLEXPRESS,,,,,,,,,,,,,,X
+SOT-WIN2K22-WEB,Microsoft Windows Server 2022 Standard Build 20348,,192.168.40.167,00:50:56:36:0D:06,,,,,,,,,X,X
+WKS1-SOTERIA,Microsoft Windows 11 Pro Build 22631,,192.168.40.91,00:0C:29:03:21:20,,,,,,,,,X,X
+WKS2-SOTERIA,Microsoft Windows 11 Pro Build 22631,,192.168.40.92,00:0C:29:35:87:3B,,,,,,,,,X,X
+WKS3-SOTERIA,Microsoft Windows 11 Pro Build 26100,,192.168.40.93,00:0C:29:48:E1:6A,,,,,,,,,X,X
+WKS4-SOTERIA,Microsoft Windows 11 Pro Build 26100,,192.168.40.94,00:50:56:27:5D:6C,,,,,,,,,X,X
+WKS5-SOTERIA,Microsoft Windows 11 Pro Build 26100,,192.168.40.95,00:0C:29:61:C8:22,,,,,,,,,X,X
+WKS6-SOTERIA,Microsoft Windows 11 Pro Build 26100,,192.168.40.96,00:0C:29:99:4A:CA,,,,,,,,,X,X
+WKS7-SOTERIA,Microsoft Windows 11 Pro Build 26100,,192.168.40.97,00:0C:29:C8:EB:78,,,,,,,,,X,X
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,

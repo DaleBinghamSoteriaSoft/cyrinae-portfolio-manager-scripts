@@ -1,0 +1,17 @@
+HTTP_STATUS_MEANINGS = {
+    200: 'OK - The request completed successfully.',
+    201: 'Created - The server created the requested resource.',
+    202: 'Accepted - The server accepted the request for processing.',
+    204: 'No Content - The request completed successfully and returned no body.',
+    400: 'Bad Request - The request was invalid or missing required information.',
+    401: 'Unauthorized - Authentication failed or the token is invalid.',
+    403: 'Forbidden - The authenticated caller does not have access to this resource.',
+    404: 'Not Found - The requested resource could not be found.',
+    405: 'Method Not Allowed - The endpoint does not allow this HTTP method.',
+    409: 'Conflict - The request conflicts with the current server state.',
+    415: 'Unsupported Media Type - The server rejected the submitted content type.',
+    422: 'Unprocessable Entity - The server understood the request but rejected the payload.',
+    500: 'Internal Server Error - The server hit an unexpected error.',
+    502: 'Bad Gateway - An upstream service returned an invalid response.',
+    503: 'Service Unavailable - The service is temporarily unavailable.',
+}
