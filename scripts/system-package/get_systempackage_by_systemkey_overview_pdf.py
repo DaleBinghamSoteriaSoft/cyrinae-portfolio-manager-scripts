@@ -88,26 +88,139 @@ def safe_filename_value(value: str) -> str:
     return safe_value.strip(".-") or "unknown-system"
 
 
+def build_framework_levels(package_framework: dict) -> list[dict[str, str]]:
+    framework_levels = package_framework.get("frameworkLevels", [])
+    if not isinstance(framework_levels, list):
+        return []
+
+    levels = []
+    for level in framework_levels:
+        if not isinstance(level, dict):
+            continue
+        category = safe_text(level.get("levelCategory")).strip()
+        value = safe_text(level.get("levelValue")).strip()
+        if category or value:
+            levels.append({"category": category, "value": value})
+    return levels
+
+
+def format_framework_level(level: dict[str, str]) -> str:
+    category = safe_text(level.get("category")).strip()
+    value = safe_text(level.get("value")).strip()
+    if category and value:
+        return f"{category}: {value}"
+    return category or value or "Unknown"
+
+
+def build_score_rows(system_package: dict) -> list[dict[str, str]]:
+    score = system_package.get("score", {})
+    if not isinstance(score, dict):
+        score = {}
+
+    return [
+        {
+            "category": "CAT I",
+            "open": safe_text(score.get("totalCat1Open", 0)),
+            "not_a_finding": safe_text(score.get("totalCat1NotAFinding", 0)),
+            "not_applicable": safe_text(score.get("totalCat1NotApplicable", 0)),
+            "not_reviewed": safe_text(score.get("totalCat1NotReviewed", 0)),
+        },
+        {
+            "category": "CAT II",
+            "open": safe_text(score.get("totalCat2Open", 0)),
+            "not_a_finding": safe_text(score.get("totalCat2NotAFinding", 0)),
+            "not_applicable": safe_text(score.get("totalCat2NotApplicable", 0)),
+            "not_reviewed": safe_text(score.get("totalCat2NotReviewed", 0)),
+        },
+        {
+            "category": "CAT III",
+            "open": safe_text(score.get("totalCat3Open", 0)),
+            "not_a_finding": safe_text(score.get("totalCat3NotAFinding", 0)),
+            "not_applicable": safe_text(score.get("totalCat3NotApplicable", 0)),
+            "not_reviewed": safe_text(score.get("totalCat3NotReviewed", 0)),
+        },
+        {
+            "category": "Total",
+            "open": safe_text(score.get("totalOpen", 0)),
+            "not_a_finding": safe_text(score.get("totalNotAFinding", 0)),
+            "not_applicable": safe_text(score.get("totalNotApplicable", 0)),
+            "not_reviewed": safe_text(score.get("totalNotReviewed", 0)),
+        },
+    ]
+
+
+def build_category_total_score_rows(system_package: dict) -> list[dict[str, str]]:
+    score = system_package.get("score", {})
+    if not isinstance(score, dict):
+        score = {}
+
+    return [
+        {"category": "CAT I", "total_score": safe_text(score.get("totalCat1", 0))},
+        {"category": "CAT II", "total_score": safe_text(score.get("totalCat2", 0))},
+        {"category": "CAT III", "total_score": safe_text(score.get("totalCat3", 0))},
+    ]
+
+
+def build_total_status_rows(system_package: dict) -> list[dict[str, str]]:
+    score = system_package.get("score", {})
+    if not isinstance(score, dict):
+        score = {}
+
+    return [
+        {"status": "Open", "total": safe_text(score.get("totalOpen", 0))},
+        {"status": "Not a Finding", "total": safe_text(score.get("totalNotAFinding", 0))},
+        {"status": "Not Applicable", "total": safe_text(score.get("totalNotApplicable", 0))},
+        {"status": "Not Reviewed", "total": safe_text(score.get("totalNotReviewed", 0))},
+    ]
+
+
+def build_patch_rows(system_package: dict) -> list[dict[str, str]]:
+    patch_score = system_package.get("patchScore", {})
+    if not isinstance(patch_score, dict):
+        patch_score = {}
+
+    return [
+        {"metric": "Critical Open", "value": safe_text(patch_score.get("totalCriticalOpen", 0))},
+        {"metric": "High Open", "value": safe_text(patch_score.get("totalHighOpen", 0))},
+        {"metric": "Medium Open", "value": safe_text(patch_score.get("totalMediumOpen", 0))},
+        {"metric": "Low Open", "value": safe_text(patch_score.get("totalLowOpen", 0))},
+        {"metric": "Version", "value": safe_text(patch_score.get("version", 0))},
+    ]
+
+
 def build_report_data(system_package: dict) -> dict[str, str]:
     system_key = safe_text(system_package.get("systemKey")).strip()
     if not system_key:
         print("ERROR: The returned system package JSON did not include systemKey.")
         sys.exit(1)
 
+    package_framework = system_package.get("packageFramework", {})
+    if not isinstance(package_framework, dict):
+        package_framework = {}
+
     return {
         "system_key": system_key,
         "title": safe_text(system_package.get("title")).strip() or "Unknown",
         "description": safe_text(system_package.get("description")).strip() or "No description returned.",
         "number_of_checklists": safe_text(system_package.get("numberOfChecklists")).strip() or "0",
+        "framework_title": safe_text(package_framework.get("frameworkTitle")).strip() or "Unknown",
+        "framework_acronym": safe_text(package_framework.get("frameworkAcronym")).strip() or "Unknown",
+        "framework_version": safe_text(package_framework.get("frameworkVersion")).strip() or "Unknown",
+        "framework_levels": build_framework_levels(package_framework),
+        "score_rows": build_score_rows(system_package),
+        "category_total_score_rows": build_category_total_score_rows(system_package),
+        "total_status_rows": build_total_status_rows(system_package),
+        "patch_rows": build_patch_rows(system_package),
         "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
     }
 
 
 def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> bool:
     try:
-        from reportlab.lib.pagesizes import letter
-        from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
+        from reportlab.lib.pagesizes import letter  # pyright: ignore[reportMissingModuleSource]
+        from reportlab.lib.styles import getSampleStyleSheet  # pyright: ignore[reportMissingModuleSource]
+        from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle  # pyright: ignore[reportMissingModuleSource]
+        from reportlab.lib import colors  # pyright: ignore[reportMissingModuleSource]
     except ImportError:
         return False
 
@@ -137,7 +250,131 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             f"<b>Number of Checklists:</b> {html.escape(report_data['number_of_checklists'])}",
             styles["Normal"],
         ),
+        Spacer(1, 10),
+        Paragraph(f"<b>Framework Title:</b> {html.escape(report_data['framework_title'])}", styles["Normal"]),
+        Spacer(1, 10),
+        Paragraph(f"<b>Framework Acronym:</b> {html.escape(report_data['framework_acronym'])}", styles["Normal"]),
+        Spacer(1, 10),
+        Paragraph(f"<b>Framework Version:</b> {html.escape(report_data['framework_version'])}", styles["Normal"]),
+        Spacer(1, 10),
+        Paragraph("<b>Framework Levels:</b>", styles["Normal"]),
     ]
+    if report_data["framework_levels"]:
+        for level in report_data["framework_levels"]:
+            story.append(
+                Paragraph(
+                    html.escape(format_framework_level(level)),
+                    styles["Normal"],
+                )
+            )
+    else:
+        story.append(Paragraph("None returned.", styles["Normal"]))
+    story.extend(
+        [
+            PageBreak(),
+            Paragraph("Checklist", styles["Heading1"]),
+            Spacer(1, 12),
+            Table(
+                [
+                    ["Category", "Open", "Not a Finding", "Not Applicable", "Not Reviewed"],
+                    *[
+                        [
+                            row["category"],
+                            row["open"],
+                            row["not_a_finding"],
+                            row["not_applicable"],
+                            row["not_reviewed"],
+                        ]
+                        for row in report_data["score_rows"]
+                    ],
+                ],
+                hAlign="LEFT",
+            ),
+        ]
+    )
+    story[-1].setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    story.extend(
+        [
+            Spacer(1, 24),
+            Table(
+                [
+                    ["Category", "Total Score"],
+                    *[[row["category"], row["total_score"]] for row in report_data["category_total_score_rows"]],
+                ],
+                hAlign="LEFT",
+            ),
+        ]
+    )
+    story[-1].setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    story.extend(
+        [
+            Spacer(1, 24),
+            Table(
+                [
+                    ["Status", "Total"],
+                    *[[row["status"], row["total"]] for row in report_data["total_status_rows"]],
+                ],
+                hAlign="LEFT",
+            ),
+        ]
+    )
+    story[-1].setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    story.extend(
+        [
+            PageBreak(),
+            Paragraph("Patch", styles["Heading1"]),
+            Spacer(1, 12),
+            Table(
+                [
+                    ["Metric", "Value"],
+                    *[[row["metric"], row["value"]] for row in report_data["patch_rows"]],
+                ],
+                hAlign="LEFT",
+            ),
+        ]
+    )
+    story[-1].setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
     document.build(story)
     return True
 
@@ -168,7 +405,44 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
     ]
     detail_lines = ["Overview", "", f"Title: {report_data['title']}", "", "Description:"]
     detail_lines.extend(textwrap.wrap(report_data["description"], width=78) or [""])
-    detail_lines.extend(["", f"Number of Checklists: {report_data['number_of_checklists']}"])
+    detail_lines.extend(
+        [
+            "",
+            f"Number of Checklists: {report_data['number_of_checklists']}",
+            "",
+            f"Framework Title: {report_data['framework_title']}",
+            f"Framework Acronym: {report_data['framework_acronym']}",
+            f"Framework Version: {report_data['framework_version']}",
+            "",
+            "Framework Levels:",
+        ]
+    )
+    if report_data["framework_levels"]:
+        for level in report_data["framework_levels"]:
+            detail_lines.append(f"- {format_framework_level(level)}")
+    else:
+        detail_lines.append("None returned.")
+
+    checklist_lines = [
+        "Checklist",
+        "",
+        "Category      Open       Not a Finding  Not Applicable  Not Reviewed",
+        "------------  ---------  -------------  --------------  ------------",
+    ]
+    for row in report_data["score_rows"]:
+        checklist_lines.append(
+            f"{row['category']:<12}  {row['open']:>9}  {row['not_a_finding']:>13}  {row['not_applicable']:>14}  {row['not_reviewed']:>12}"
+        )
+    checklist_lines.extend(["", "Category      Total Score", "------------  -----------"])
+    for row in report_data["category_total_score_rows"]:
+        checklist_lines.append(f"{row['category']:<12}  {row['total_score']:>11}")
+    checklist_lines.extend(["", "Status          Total", "--------------  ---------"])
+    for row in report_data["total_status_rows"]:
+        checklist_lines.append(f"{row['status']:<14}  {row['total']:>9}")
+
+    patch_lines = ["Patch", "", "Metric         Value", "-------------  ---------"]
+    for row in report_data["patch_rows"]:
+        patch_lines.append(f"{row['metric']:<13}  {row['value']:>9}")
 
     pages = [make_text_page(title_lines, font_size=14)]
     current_lines: list[str] = []
@@ -181,6 +455,8 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
                 current_lines = []
     if current_lines:
         pages.append(make_text_page(current_lines))
+    pages.append(make_text_page(checklist_lines))
+    pages.append(make_text_page(patch_lines))
     return pages
 
 

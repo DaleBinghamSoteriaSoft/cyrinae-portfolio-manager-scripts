@@ -219,3 +219,5 @@ __marimo__/
 
 # MAC OS X files
 .DS_Store
+
+*.pdf
