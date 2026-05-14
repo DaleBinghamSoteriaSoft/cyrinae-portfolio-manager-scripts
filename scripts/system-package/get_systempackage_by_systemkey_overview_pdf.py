@@ -875,24 +875,28 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
         from reportlab.lib.styles import getSampleStyleSheet  # pyright: ignore[reportMissingModuleSource]
         from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle  # pyright: ignore[reportMissingModuleSource]
         from reportlab.lib import colors  # pyright: ignore[reportMissingModuleSource]
-        from reportlab.graphics.shapes import Drawing, Rect  # pyright: ignore[reportMissingModuleSource]
+        from reportlab.graphics.shapes import Drawing, Rect, String  # pyright: ignore[reportMissingModuleSource]
     except ImportError:
         return False
 
     styles = getSampleStyleSheet()
-    cat_row_backgrounds = [colors.lightcoral, colors.orange, colors.lightyellow, colors.white]
+    table_header_style = styles["BodyText"].clone("CenteredTableHeader")
+    table_header_style.alignment = 1
+    table_header_style.fontName = "Helvetica-Bold"
+    bright_yellow = colors.Color(1.0, 0.95, 0.05)
+    cat_row_backgrounds = [colors.lightcoral, colors.orange, bright_yellow, colors.white]
     status_row_backgrounds = [colors.white, colors.lightgreen, colors.lightgrey, colors.grey]
-    patch_row_backgrounds = [colors.Color(0.9, 0.25, 0.35), colors.salmon, colors.orange, colors.lightyellow, colors.white]
+    patch_row_backgrounds = [colors.Color(0.9, 0.25, 0.35), colors.salmon, colors.orange, bright_yellow, colors.white]
     poam_severity_backgrounds = {
         "Critical": colors.Color(0.9, 0.25, 0.35),
         "High": colors.salmon,
         "Medium": colors.orange,
-        "Low": colors.lightyellow,
+        "Low": bright_yellow,
     }
     poam_risk_backgrounds = {
         "Very High": colors.crimson,
         "High": colors.red,
-        "Moderate": colors.yellow,
+        "Moderate": bright_yellow,
         "Low": colors.lightgreen,
         "Very low": colors.darkgreen,
     }
@@ -905,25 +909,58 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     def numeric_value(value) -> float:
         return max(numeric_sort_value(safe_text(value)), 0.0)
 
-    def histogram_bar(value, maximum_value, fill_color, width: int = 130, height: int = 10) -> object:
-        drawing = Drawing(width, height)
-        drawing.add(Rect(0, 0, width, height, strokeColor=colors.grey, fillColor=colors.whitesmoke, strokeWidth=0.5))
-        if maximum_value > 0 and numeric_value(value) > 0:
-            bar_width = min(width, width * numeric_value(value) / maximum_value)
-            drawing.add(Rect(0, 0, bar_width, height, strokeColor=None, fillColor=fill_color))
-        return drawing
-
-    def stacked_histogram_bar(values: list[tuple[float, object]], maximum_value: float, width: int = 130, height: int = 10) -> object:
-        drawing = Drawing(width, height)
-        drawing.add(Rect(0, 0, width, height, strokeColor=colors.grey, fillColor=colors.whitesmoke, strokeWidth=0.5))
-        if maximum_value <= 0:
+    def checklist_findings_bar_graph(rows: list[dict[str, str]]) -> object:
+        drawing_width = 470
+        drawing_height = 240
+        chart_left = 42
+        chart_bottom = 55
+        chart_width = 320
+        chart_height = 125
+        bar_width = 12
+        bar_gap = 3
+        group_gap = 26
+        series = [
+            ("Open", "open", None),
+            ("NAF", "not_a_finding", colors.lightgreen),
+            ("N/A", "not_applicable", colors.lightgrey),
+            ("NR", "not_reviewed", colors.white),
+        ]
+        graph_rows = rows[:4]
+        max_value = max(
+            [numeric_value(row[key]) for row in graph_rows for _, key, _ in series] or [0]
+        )
+        drawing = Drawing(drawing_width, drawing_height)
+        drawing.add(String(0, 220, "Checklist Findings by CAT", fontSize=12, fontName="Helvetica-Bold"))
+        drawing.add(Rect(chart_left, chart_bottom, chart_width, chart_height, strokeColor=colors.grey, fillColor=None, strokeWidth=0.5))
+        drawing.add(String(6, chart_bottom + chart_height - 4, safe_text(int(max_value)), fontSize=8))
+        drawing.add(String(24, chart_bottom - 2, "0", fontSize=8))
+        if max_value <= 0:
             return drawing
-        x_position = 0
-        for value, fill_color in values:
-            segment_width = min(width - x_position, width * numeric_value(value) / maximum_value)
-            if segment_width > 0:
-                drawing.add(Rect(x_position, 0, segment_width, height, strokeColor=None, fillColor=fill_color))
-                x_position += segment_width
+
+        group_width = (bar_width * len(series)) + (bar_gap * (len(series) - 1))
+        for group_index, row in enumerate(graph_rows):
+            group_x = chart_left + 20 + (group_index * (group_width + group_gap))
+            for series_index, (_, key, fill_color) in enumerate(series):
+                value = numeric_value(row[key])
+                bar_height = chart_height * value / max_value if value else 0
+                bar_x = group_x + (series_index * (bar_width + bar_gap))
+                bar_color = cat_row_backgrounds[group_index] if key == "open" else fill_color
+                drawing.add(Rect(bar_x, chart_bottom, bar_width, bar_height, strokeColor=colors.grey, fillColor=bar_color, strokeWidth=0.25))
+                if value > 0:
+                    drawing.add(String(bar_x - 2, chart_bottom + bar_height + 4, safe_text(int(value)), fontSize=7))
+            drawing.add(String(group_x, 34, row["category"], fontSize=8))
+
+        legend_y = 175
+        for label, _, fill_color in series:
+            if label == "Open":
+                for color_index, open_color in enumerate(cat_row_backgrounds[:3]):
+                    drawing.add(Rect(382 + (color_index * 12), legend_y - 2, 10, 10, strokeColor=colors.grey, fillColor=open_color, strokeWidth=0.25))
+                drawing.add(String(422, legend_y, label, fontSize=8))
+            else:
+                drawing.add(Rect(382, legend_y - 2, 10, 10, strokeColor=colors.grey, fillColor=fill_color, strokeWidth=0.25))
+                drawing.add(String(398, legend_y, label, fontSize=8))
+            legend_y -= 18
+        drawing.add(String(382, legend_y, "Open follows CAT colors", fontSize=6))
         return drawing
 
     document = SimpleDocTemplate(
@@ -970,36 +1007,15 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             )
     else:
         story.append(Paragraph("None returned.", styles["Normal"]))
-    score_row_totals = [
-        sum(
-            numeric_value(row[key])
-            for key in ("open", "not_a_finding", "not_applicable", "not_reviewed")
-        )
-        for row in report_data["score_rows"]
-    ]
-    max_score_total = max(score_row_totals or [0])
-    max_category_total_score = max([numeric_value(row["total_score"]) for row in report_data["category_total_score_rows"]] or [0])
-    max_status_total = max([numeric_value(row["total"]) for row in report_data["total_status_rows"]] or [0])
-    max_patch_total = max([numeric_value(row["value"]) for row in report_data["patch_rows"] if row["metric"] != "Version"] or [0])
-
-    def side_by_side_table(data_table: object, histogram_table: object, left_width: int, right_width: int) -> object:
-        wrapper_table = Table([[data_table, histogram_table]], hAlign="LEFT", colWidths=[left_width, right_width])
-        wrapper_table.setStyle(
-            TableStyle(
-                [
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ]
-            )
-        )
-        return wrapper_table
-
     checklist_findings_table = Table(
         [
-            ["Category", "Open", "Not a Finding", "Not Applicable", "Not Reviewed"],
+            [
+                Paragraph("Category", table_header_style),
+                Paragraph("Open", table_header_style),
+                Paragraph("Not a<br/>Finding", table_header_style),
+                Paragraph("Not<br/>Applicable", table_header_style),
+                Paragraph("Not<br/>Reviewed", table_header_style),
+            ],
             *[
                 [
                     row["category"],
@@ -1012,16 +1028,18 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             ],
         ],
         hAlign="LEFT",
-        colWidths=[55, 45, 80, 80, 70],
+        colWidths=[70, 60, 95, 105, 90],
     )
     checklist_findings_table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
                 *[
-                    ("BACKGROUND", (0, row_index), (-1, row_index), background_color)
+                    ("BACKGROUND", (1, row_index), (1, row_index), background_color)
                     for row_index, background_color in enumerate(cat_row_backgrounds, start=1)
                 ],
+                ("BACKGROUND", (2, 1), (2, -1), colors.lightgreen),
+                ("BACKGROUND", (3, 1), (3, -1), colors.lightgrey),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
@@ -1031,42 +1049,11 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             ]
         )
     )
-    checklist_findings_histogram_table = Table(
-        [
-            ["Histogram"],
-            *[
-                [
-                    stacked_histogram_bar(
-                        [
-                            (numeric_value(row["open"]), colors.lightcoral),
-                            (numeric_value(row["not_a_finding"]), colors.lightgreen),
-                            (numeric_value(row["not_applicable"]), colors.lightgrey),
-                            (numeric_value(row["not_reviewed"]), colors.grey),
-                        ],
-                        max_score_total,
-                    )
-                ]
-                for row in report_data["score_rows"]
-            ],
-        ],
-        hAlign="LEFT",
-        colWidths=[140],
-    )
-    checklist_findings_histogram_table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ]
-        )
-    )
+    checklist_findings_chart = checklist_findings_bar_graph(report_data["score_rows"])
 
     category_total_table = Table(
         [
-            ["Category", "Total Score"],
+            [Paragraph("Category", table_header_style), Paragraph("Total<br/>Score", table_header_style)],
             *[[row["category"], row["total_score"]] for row in report_data["category_total_score_rows"]],
         ],
         hAlign="LEFT",
@@ -1088,32 +1075,9 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             ]
         )
     )
-    category_total_histogram_table = Table(
-        [
-            ["Histogram"],
-            *[
-                [histogram_bar(row["total_score"], max_category_total_score, cat_row_backgrounds[row_index])]
-                for row_index, row in enumerate(report_data["category_total_score_rows"])
-            ],
-        ],
-        hAlign="LEFT",
-        colWidths=[140],
-    )
-    category_total_histogram_table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ]
-        )
-    )
-
     status_totals_table = Table(
         [
-            ["Status", "Total"],
+            [Paragraph("Status", table_header_style), Paragraph("Total", table_header_style)],
             *[[row["status"], row["total"]] for row in report_data["total_status_rows"]],
         ],
         hAlign="LEFT",
@@ -1135,32 +1099,9 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             ]
         )
     )
-    status_totals_histogram_table = Table(
-        [
-            ["Histogram"],
-            *[
-                [histogram_bar(row["total"], max_status_total, status_row_backgrounds[row_index])]
-                for row_index, row in enumerate(report_data["total_status_rows"])
-            ],
-        ],
-        hAlign="LEFT",
-        colWidths=[140],
-    )
-    status_totals_histogram_table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ]
-        )
-    )
-
     patch_totals_table = Table(
         [
-            ["Status", "Total"],
+            [Paragraph("Status", table_header_style), Paragraph("Total", table_header_style)],
             *[[row["metric"], row["value"]] for row in report_data["patch_rows"]],
         ],
         hAlign="LEFT",
@@ -1182,29 +1123,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             ]
         )
     )
-    patch_totals_histogram_table = Table(
-        [
-            ["Histogram"],
-            *[
-                ["" if row["metric"] == "Version" else histogram_bar(row["value"], max_patch_total, patch_row_backgrounds[row_index])]
-                for row_index, row in enumerate(report_data["patch_rows"])
-            ],
-        ],
-        hAlign="LEFT",
-        colWidths=[140],
-    )
-    patch_totals_histogram_table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ]
-        )
-    )
-
     story.extend(
         [
             PageBreak(),
@@ -1212,15 +1130,19 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             Spacer(1, 12),
             Paragraph("Checklist Findings by CAT", styles["Heading2"]),
             Spacer(1, 8),
-            side_by_side_table(checklist_findings_table, checklist_findings_histogram_table, 330, 150),
+            checklist_findings_table,
+            Spacer(1, 16),
+            checklist_findings_chart,
         ]
     )
     story.extend(
         [
-            Spacer(1, 24),
+            PageBreak(),
+            Paragraph("Checklist", styles["Heading1"]),
+            Spacer(1, 12),
             Paragraph("Category Total Scores", styles["Heading2"]),
             Spacer(1, 8),
-            side_by_side_table(category_total_table, category_total_histogram_table, 165, 150),
+            category_total_table,
         ]
     )
     story.extend(
@@ -1228,7 +1150,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             Spacer(1, 24),
             Paragraph("Status Totals", styles["Heading2"]),
             Spacer(1, 8),
-            side_by_side_table(status_totals_table, status_totals_histogram_table, 160, 150),
+            status_totals_table,
         ]
     )
     story.extend(
@@ -1238,7 +1160,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             Spacer(1, 12),
             Paragraph("Patch Vulnerability Totals", styles["Heading2"]),
             Spacer(1, 8),
-            side_by_side_table(patch_totals_table, patch_totals_histogram_table, 160, 150),
+            patch_totals_table,
         ]
     )
     patch_vulnerability_table_rows = [
@@ -1373,7 +1295,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
         )
     )
     ppsm_table_rows = [
-        ["Port", "Protocol", "Service", "# Devices", "Hostname", "Boundaries Crossed"],
+        ["Port", "Protocol", "Service", "# Devices", "Hostname", Paragraph("Boundaries<br/>Crossed", table_header_style)],
         *[
             [
                 Paragraph(html.escape(row["port"]), styles["BodyText"]),
@@ -1400,7 +1322,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
                 ppsm_table_rows,
                 hAlign="LEFT",
                 repeatRows=1,
-                colWidths=[42, 55, 105, 55, 125, 85],
+                colWidths=[40, 50, 95, 52, 115, 113],
             ),
         ]
     )
@@ -1537,12 +1459,6 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
     def text_number(value) -> float:
         return max(numeric_sort_value(safe_text(value)), 0.0)
 
-    def text_histogram(value, maximum_value, width: int = 12, character: str = "#") -> str:
-        if maximum_value <= 0 or text_number(value) <= 0:
-            return "-" * width
-        filled_width = max(1, round(width * text_number(value) / maximum_value))
-        return character * min(width, filled_width) + "-" * max(0, width - filled_width)
-
     def text_stacked_histogram(values: list[tuple[float, str]], maximum_value: float, width: int = 12) -> str:
         if maximum_value <= 0:
             return "-" * width
@@ -1559,9 +1475,6 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
         for row in report_data["score_rows"]
     ]
     max_score_total = max(score_row_totals or [0])
-    max_category_total_score = max([text_number(row["total_score"]) for row in report_data["category_total_score_rows"]] or [0])
-    max_status_total = max([text_number(row["total"]) for row in report_data["total_status_rows"]] or [0])
-    max_patch_total = max([text_number(row["value"]) for row in report_data["patch_rows"] if row["metric"] != "Version"] or [0])
 
     title_lines = [
         REPORT_TITLE,
@@ -1602,7 +1515,7 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
         checklist_lines.append(
             f"{row['category']:<12}  {row['open']:>9}  {row['not_a_finding']:>13}  {row['not_applicable']:>14}  {row['not_reviewed']:>12}"
         )
-    checklist_lines.extend(["", "Histograms - Checklist Findings by CAT", "Legend: O=Open F=Not a Finding A=Not Applicable R=Not Reviewed"])
+    checklist_lines.extend(["", "Bar Graph - Checklist Findings by CAT", "Legend: O=Open F=Not a Finding A=Not Applicable R=Not Reviewed"])
     for row in report_data["score_rows"]:
         histogram = text_stacked_histogram(
             [
@@ -1617,26 +1530,17 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
     checklist_lines.extend(["", "Category Total Scores", "Category      Total Score", "------------  -----------"])
     for row in report_data["category_total_score_rows"]:
         checklist_lines.append(f"{row['category']:<12}  {row['total_score']:>11}")
-    checklist_lines.extend(["", "Histograms - Category Total Scores"])
-    for row in report_data["category_total_score_rows"]:
-        checklist_lines.append(f"{row['category']:<12}  {text_histogram(row['total_score'], max_category_total_score)}")
     checklist_lines.extend(["", "Status Totals", "Status          Total", "--------------  ---------"])
     for row in report_data["total_status_rows"]:
         checklist_lines.append(f"{row['status']:<14}  {row['total']:>9}")
-    checklist_lines.extend(["", "Histograms - Status Totals"])
-    for row in report_data["total_status_rows"]:
-        checklist_lines.append(f"{row['status']:<14}  {text_histogram(row['total'], max_status_total)}")
 
     checklist_line_backgrounds = {
         4: (0.94, 0.5, 0.5),
         5: (1.0, 0.65, 0.0),
-        6: (1.0, 1.0, 0.6),
-        18: (0.94, 0.5, 0.5),
-        19: (1.0, 0.65, 0.0),
-        20: (1.0, 1.0, 0.6),
-        31: (0.56, 0.93, 0.56),
-        32: (0.83, 0.83, 0.83),
-        33: (0.5, 0.5, 0.5),
+        6: (1.0, 0.95, 0.05),
+        18: (0.56, 0.93, 0.56),
+        19: (0.83, 0.83, 0.83),
+        20: (0.5, 0.5, 0.5),
     }
 
     patch_lines = [
@@ -1649,16 +1553,12 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
     ]
     for row in report_data["patch_rows"]:
         patch_lines.append(f"{row['metric']:<13}  {row['value']:>9}")
-    patch_lines.extend(["", "Histograms - Patch Vulnerability Totals"])
-    for row in report_data["patch_rows"]:
-        if row["metric"] != "Version":
-            patch_lines.append(f"{row['metric']:<13}  {text_histogram(row['value'], max_patch_total)}")
 
     patch_line_backgrounds = {
         6: (0.9, 0.25, 0.35),
         7: (0.98, 0.5, 0.45),
         8: (1.0, 0.65, 0.0),
-        9: (1.0, 1.0, 0.6),
+        9: (1.0, 0.95, 0.05),
         10: (1.0, 1.0, 1.0),
     }
 
@@ -1793,11 +1693,11 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
         6: (0.9, 0.25, 0.35),
         7: (0.98, 0.5, 0.45),
         8: (1.0, 0.65, 0.0),
-        9: (1.0, 1.0, 0.6),
+        9: (1.0, 0.95, 0.05),
         16: (0.9, 0.25, 0.35),
         17: (0.98, 0.5, 0.45),
         18: (1.0, 0.65, 0.0),
-        19: (1.0, 1.0, 0.6),
+        19: (1.0, 0.95, 0.05),
         27: (0.86, 0.08, 0.24),
         28: (1.0, 0.0, 0.0),
         29: (1.0, 1.0, 0.0),
