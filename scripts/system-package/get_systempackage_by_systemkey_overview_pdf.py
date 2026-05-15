@@ -475,7 +475,7 @@ def build_hardware_rows(hardwaredata) -> list[dict[str, str]]:
         hostname = first_value(record, ["hostname", "hostName", "deviceName", "name", "assetName", "computerName", "machineName"])
         operating_system = first_value(record, ["operatingSystem", "operatingSystemName", "os", "osName", "platform"])
         ip_addresses = first_raw_value(record, ["ipAddressList", "ipAddresses", "ipAddress", "ip", "ips", "networkAddresses"])
-        patch_scan = first_raw_value(record, ["patchScan", "patchScanEnabled", "hasPatchScan", "patchScanning", "patchScanAvailable"])
+        patch_scan = first_raw_value(record, ["patchscan", "patchScanEnabled", "hasPatchScan", "patchScanning", "patchScanAvailable"])
         checklists = first_raw_value(record, ["checklists", "hasChecklists", "checklist", "hasChecklist", "checklistAvailable"])
 
         if not hostname:
