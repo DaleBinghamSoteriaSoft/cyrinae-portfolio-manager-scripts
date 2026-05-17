@@ -31,99 +31,106 @@ CONTROL_STATUS_UNKNOWN = "UNKNOWN"
 LEVEL_THREE_PASS_FAIL_NOTE = "Approved implementation treats Level 3 as pass/fail only."
 
 L2_FIVE_POINT_CONTROLS = {
-    "3.1.1",
-    "3.1.2",
-    "3.1.12",
-    "3.1.13",
-    "3.1.16",
-    "3.1.17",
-    "3.1.18",
-    "3.3.1",
-    "3.3.2",
-    "3.4.1",
-    "3.4.2",
-    "3.4.6",
-    "3.4.7",
-    "3.4.8",
-    "3.5.1",
-    "3.5.2",
-    "3.5.3",
-    "3.6.1",
-    "3.6.2",
-    "3.7.2",
-    "3.8.1",
-    "3.8.2",
-    "3.8.3",
-    "3.10.1",
-    "3.10.3",
-    "3.10.4",
-    "3.10.5",
-    "3.11.1",
-    "3.12.1",
-    "3.12.2",
-    "3.12.3",
-    "3.12.4",
-    "3.13.1",
-    "3.13.2",
-    "3.13.5",
-    "3.13.6",
-    "3.13.15",
-    "3.14.1",
-    "3.14.2",
-    "3.14.4",
-    "3.14.5",
+    "AC.L1-3.1.1",
+    "AC.L1-3.1.2",
+    "AC.L2-3.1.12",
+    "AC.L2-3.1.13",
+    "AC.L2-3.1.16",
+    "AC.L2-3.1.17",
+    "AC.L2-3.1.18",
+    "AU.L2-3.3.1",
+    "AU.L2-3.3.2",
+    "CM.L2-3.4.1",
+    "CM.L2-3.4.2",
+    "CM.L2-3.4.6",
+    "CM.L2-3.4.7",
+    "CM.L2-3.4.8",
+    "IA.L1-3.5.1",
+    "IA.L1-3.5.2",
+    "IA.L2-3.5.3",
+    "IR.L2-3.6.1",
+    "IR.L2-3.6.2",
+    "MA.L2-3.7.2",
+    "MP.L2-3.8.1",
+    "MP.L2-3.8.2",
+    "MP.L1-3.8.3",
+    "PE.L1-3.10.1",
+    "PE.L1-3.10.3",
+    "PE.L1-3.10.4",
+    "PE.L1-3.10.5",
+    "RA.L2-3.11.1",
+    "CA.L2-3.12.1",
+    "CA.L2-3.12.2",
+    "CA.L2-3.12.3",
+    "CA.L2-3.12.4",
+    "SC.L1-3.13.1",
+    "SC.L2-3.13.2",
+    "SC.L1-3.13.5",
+    "SC.L2-3.13.6",
+    "SC.L2-3.13.15",
+    "SI.L1-3.14.1",
+    "SI.L1-3.14.2",
+    "SI.L1-3.14.4",
+    "SI.L1-3.14.5",
 }
 
 L2_THREE_POINT_CONTROLS = {
-    "3.1.5",
-    "3.1.19",
-    "3.4.3",
-    "3.5.10",
-    "3.8.4",
-    "3.8.5",
-    "3.11.2",
-    "3.13.11",
-    "3.13.16",
-    "3.14.3",
-    "3.14.6",
-    "3.14.7",
+    "AC.L2-3.1.5",
+    "AC.L2-3.1.19",
+    "CM.L2-3.4.3",
+    "IA.L2-3.5.10",
+    "MP.L2-3.8.4",
+    "MP.L2-3.8.5",
+    "RA.L2-3.11.2",
+    "SC.L2-3.13.11",
+    "SC.L2-3.13.16",
+    "SI.L2-3.14.3",
+    "SI.L2-3.14.6",
+    "SI.L2-3.14.7",
 }
 
-L2_NO_SCORE_CONTROLS = {"3.12.4"}
-L2_NON_POAM_ELIGIBLE_CONTROLS = set(L2_FIVE_POINT_CONTROLS) | {"3.11.2", "3.12.4"}
+L2_FIVE_POINT_CONTROL_NUMBERS = {control_id.split("-", 1)[1] for control_id in L2_FIVE_POINT_CONTROLS}
+L2_THREE_POINT_CONTROL_NUMBERS = {control_id.split("-", 1)[1] for control_id in L2_THREE_POINT_CONTROLS}
+L2_NO_SCORE_CONTROLS = {"CA.L2-3.12.4"}
+L2_NO_SCORE_CONTROL_NUMBERS = {control_id.split("-", 1)[1] for control_id in L2_NO_SCORE_CONTROLS}
+L2_NON_POAM_ELIGIBLE_CONTROLS = set(L2_FIVE_POINT_CONTROLS) | {"RA.L2-3.11.2", "CA.L2-3.12.4"}
+L2_NON_POAM_ELIGIBLE_CONTROL_NUMBERS = {
+    control_id.split("-", 1)[1] for control_id in L2_NON_POAM_ELIGIBLE_CONTROLS
+}
 
 L3_FIVE_POINT_CONTROLS = {
-    "AC.L3-3.1.3e",
-    "CM.L3-3.4.1e",
-    "CM.L3-3.4.2e",
-    "IA.L3-3.5.1e",
-    "IA.L3-3.5.2e",
-    "IR.L3-3.6.1e",
-    "RA.L3-3.11.1e",
-    "RA.L3-3.11.2e",
-    "RA.L3-3.11.4e",
-    "RA.L3-3.11.5e",
-    "SC.L3-3.13.1e",
-    "SC.L3-3.13.2e",
-    "SC.L3-3.13.3e",
-    "SC.L3-3.13.4e",
-    "SC.L3-3.13.11e",
-    "SI.L3-3.14.1e",
-    "SI.L3-3.14.3e",
-    "SI.L3-3.14.6e",
-    "SI.L3-3.14.7e",
+    "AC.L3-3.1.3E",
+    "CM.L3-3.4.1E",
+    "CM.L3-3.4.2E",
+    "IA.L3-3.5.1E",
+    "IA.L3-3.5.2E",
+    "IR.L3-3.6.1E",
+    "RA.L3-3.11.1E",
+    "RA.L3-3.11.2E",
+    "RA.L3-3.11.4E",
+    "RA.L3-3.11.5E",
+    "SC.L3-3.13.1E",
+    "SC.L3-3.13.2E",
+    "SC.L3-3.13.3E",
+    "SC.L3-3.13.4E",
+    "SC.L3-3.13.11E",
+    "SI.L3-3.14.1E",
+    "SI.L3-3.14.3E",
+    "SI.L3-3.14.6E",
+    "SI.L3-3.14.7E",
 }
 
 L3_ONE_POINT_CONTROLS = {
-    "AC.L3-3.1.2e",
-    "AT.L3-3.2.1e",
-    "SI.L3-3.14.2e",
-    "SI.L3-3.14.4e",
-    "SI.L3-3.14.5e",
+    "AC.L3-3.1.2E",
+    "AT.L3-3.2.1E",
+    "SI.L3-3.14.2E",
+    "SI.L3-3.14.4E",
+    "SI.L3-3.14.5E",
 }
 
 L3_ALL_CONTROLS = L3_FIVE_POINT_CONTROLS | L3_ONE_POINT_CONTROLS
-L3_SUFFIX_TO_CONTROL_ID = {control_id.split("L3-", 1)[1]: control_id for control_id in L3_ALL_CONTROLS}
+L3_SUFFIX_TO_CONTROL_ID = {control_id.split("L3-", 1)[1].upper(): control_id for control_id in L3_ALL_CONTROLS}
+CONTROL_DISPLAY_PATTERN = re.compile(r"([A-Z]{2})[.\-]L([123])[.\-](\d+\.\d+\.\d+)([A-Z])?", flags=re.IGNORECASE)
 
 
 def get_project_python_executable() -> str:
@@ -352,6 +359,28 @@ def normalize_cmmc_level_value(value: str) -> str | None:
     return None
 
 
+def control_number_key(value: str) -> str:
+    raw_text = normalized_text(value)
+    if not raw_text:
+        return ""
+
+    display_match = CONTROL_DISPLAY_PATTERN.search(raw_text)
+    if display_match:
+        number = display_match.group(3)
+        suffix = (display_match.group(4) or "").upper()
+        return f"{number}{suffix}"
+
+    upper_text = raw_text.upper()
+    suffix_match = re.search(r"(\d+\.\d+\.\d+[A-Z])", upper_text)
+    if suffix_match:
+        return suffix_match.group(1)
+
+    numeric_match = re.search(r"(\d+\.\d+\.\d+)", raw_text)
+    if numeric_match:
+        return numeric_match.group(1)
+    return raw_text
+
+
 def resolve_cmmc_level(system_package: dict) -> str:
     package_framework = system_package.get("packageFramework", {})
     if not isinstance(package_framework, dict):
@@ -406,20 +435,22 @@ def canonicalize_control_id(value: str) -> str:
     if not raw_text:
         return ""
 
+    display_match = CONTROL_DISPLAY_PATTERN.search(raw_text)
+    if display_match:
+        family = display_match.group(1).upper()
+        level = display_match.group(2)
+        control_number = display_match.group(3)
+        suffix = (display_match.group(4) or "").upper()
+        standardized = f"{family}.L{level}-{control_number}{suffix}"
+        if level == "3" and suffix:
+            return L3_SUFFIX_TO_CONTROL_ID.get(f"{control_number}{suffix}", standardized)
+        return standardized
+
     upper_text = raw_text.upper()
-    l3_match = re.search(r"([A-Z]{2}\.L3-\d+\.\d+\.\d+[A-Z])", upper_text)
-    if l3_match:
-        matched = l3_match.group(1)
-        return matched[:-1] + matched[-1].lower()
-
-    l2_match = re.search(r"[A-Z]{2}\.L[12]-(\d+\.\d+\.\d+)", upper_text)
-    if l2_match:
-        return l2_match.group(1)
-
-    suffix_match = re.search(r"(\d+\.\d+\.\d+[A-Za-z])", raw_text)
+    suffix_match = re.search(r"(\d+\.\d+\.\d+[A-Z])", upper_text)
     if suffix_match:
         suffix = suffix_match.group(1)
-        return L3_SUFFIX_TO_CONTROL_ID.get(suffix, L3_SUFFIX_TO_CONTROL_ID.get(suffix.lower(), suffix))
+        return L3_SUFFIX_TO_CONTROL_ID.get(suffix, suffix)
 
     numeric_match = re.search(r"(\d+\.\d+\.\d+)", raw_text)
     if numeric_match:
@@ -434,6 +465,8 @@ def extract_all_control_ids_from_text(value: str) -> set[str]:
     if not raw_text:
         return identifiers
 
+    for match in CONTROL_DISPLAY_PATTERN.finditer(raw_text):
+        identifiers.add(canonicalize_control_id(match.group(0)))
     for match in re.findall(r"[A-Z]{2}\.L3-\d+\.\d+\.\d+[A-Za-z]", raw_text, flags=re.IGNORECASE):
         identifiers.add(canonicalize_control_id(match))
     for match in re.findall(r"[A-Z]{2}\.L[12]-\d+\.\d+\.\d+", raw_text, flags=re.IGNORECASE):
@@ -617,6 +650,7 @@ def extract_control_identifier(record: dict) -> str:
     direct_value = first_value(
         record,
         [
+            "controlDisplay",
             "controlIdentifier",
             "controlId",
             "control",
@@ -637,11 +671,13 @@ def extract_control_identifier(record: dict) -> str:
     nested_candidate = first_nested_value(
         record,
         [
+            ["control", "controlDisplay"],
             ["control", "controlIdentifier"],
             ["control", "controlId"],
             ["control", "controlNumber"],
             ["control", "identifier"],
             ["control", "name"],
+            ["securityCheck", "controlDisplay"],
             ["securityCheck", "name"],
             ["securityCheck", "identifier"],
         ],
@@ -660,6 +696,7 @@ def raw_control_identifier(record: dict) -> str:
     direct_value = first_value(
         record,
         [
+            "controlDisplay",
             "controlIdentifier",
             "controlId",
             "control",
@@ -678,11 +715,13 @@ def raw_control_identifier(record: dict) -> str:
     nested_candidate = first_nested_value(
         record,
         [
+            ["control", "controlDisplay"],
             ["control", "controlIdentifier"],
             ["control", "controlId"],
             ["control", "controlNumber"],
             ["control", "identifier"],
             ["control", "name"],
+            ["securityCheck", "controlDisplay"],
             ["securityCheck", "name"],
             ["securityCheck", "identifier"],
         ],
@@ -735,7 +774,30 @@ def extract_control_status_raw(record: dict):
     for key in ["met", "implemented", "isImplemented"]:
         if key in record:
             return record[key]
+
+    completion_value = extract_percentage_complete(record)
+    if completion_value is not None:
+        return "Completed" if completion_value >= 100 else "Incomplete"
     return None
+
+
+def extract_percentage_complete(record: dict) -> float | None:
+    percentage_complete = first_value(record, ["percentageComplete", "percentComplete", "completionPercentage"])
+    if percentage_complete is None:
+        percentage_complete = first_nested_value(
+            record,
+            [
+                ["score", "percentageComplete"],
+                ["score", "percentComplete"],
+                ["score", "completionPercentage"],
+            ],
+        )
+    if percentage_complete is None:
+        return None
+    try:
+        return float(str(percentage_complete).strip())
+    except (TypeError, ValueError):
+        return None
 
 
 def extract_source_record_id(record: dict) -> str:
@@ -749,12 +811,10 @@ def infer_control_level(raw_identifier: str, canonical_identifier: str, target_l
     raw_upper = raw_identifier.upper()
     if ".L3-" in raw_upper or canonical_identifier in L3_ALL_CONTROLS:
         return "Level 3"
-    if ".L2-" in raw_upper:
+    if re.search(r"[.\-]L[12][.\-]", raw_upper):
+        if target_level == "Level 1":
+            return "Level 1"
         return "Level 2"
-    if ".L1-" in raw_upper:
-        return "Level 1"
-    if canonical_identifier in L3_ALL_CONTROLS:
-        return "Level 3"
     if re.fullmatch(r"\d+\.\d+\.\d+[A-Za-z]", canonical_identifier):
         return "Level 3"
     if re.fullmatch(r"\d+\.\d+\.\d+", canonical_identifier):
@@ -765,20 +825,21 @@ def infer_control_level(raw_identifier: str, canonical_identifier: str, target_l
 
 
 def infer_control_family(raw_identifier: str) -> str:
-    family_match = re.match(r"([A-Z]{2})\.L[123]-", raw_identifier.upper())
+    family_match = CONTROL_DISPLAY_PATTERN.search(raw_identifier)
     if family_match:
-        return family_match.group(1)
+        return family_match.group(1).upper()
     return ""
 
 
 def level_two_point_value(canonical_identifier: str) -> int | None:
     if not canonical_identifier:
         return None
-    if canonical_identifier in L2_FIVE_POINT_CONTROLS:
+    control_number = control_number_key(canonical_identifier)
+    if canonical_identifier in L2_FIVE_POINT_CONTROLS or control_number in L2_FIVE_POINT_CONTROL_NUMBERS:
         return 5
-    if canonical_identifier in L2_THREE_POINT_CONTROLS:
+    if canonical_identifier in L2_THREE_POINT_CONTROLS or control_number in L2_THREE_POINT_CONTROL_NUMBERS:
         return 3
-    if re.fullmatch(r"\d+\.\d+\.\d+", canonical_identifier):
+    if re.fullmatch(r"\d+\.\d+\.\d+", control_number):
         return 1
     return None
 
@@ -792,10 +853,14 @@ def level_three_point_value(canonical_identifier: str) -> int | None:
 
 
 def poam_eligible(level: str, canonical_identifier: str, point_value: int | None) -> bool:
+    control_number = control_number_key(canonical_identifier)
     if level == "Level 1":
         return False
     if level == "Level 2":
-        if canonical_identifier in L2_NON_POAM_ELIGIBLE_CONTROLS:
+        if (
+            canonical_identifier in L2_NON_POAM_ELIGIBLE_CONTROLS
+            or control_number in L2_NON_POAM_ELIGIBLE_CONTROL_NUMBERS
+        ):
             return False
         return point_value in {1, 3}
     if level == "Level 3":
@@ -805,14 +870,15 @@ def poam_eligible(level: str, canonical_identifier: str, point_value: int | None
 
 def special_deduction_for_level_two(control_model: dict, point_value: int) -> tuple[int, str | None]:
     canonical_identifier = control_model["canonicalControlId"]
+    control_number = control_number_key(canonical_identifier)
     text_blob = control_model["textBlob"].lower()
     status_raw = control_model["statusRaw"].lower()
     combined = f"{status_raw} | {text_blob}"
 
-    if canonical_identifier == "3.5.3":
+    if control_number == "3.5.3":
         if "partial" in combined or ("remote" in combined and "privileged" in combined and "local" in combined):
             return 3, "Applied partial MFA deduction based on source data wording."
-    if canonical_identifier == "3.13.11":
+    if control_number == "3.13.11":
         if "not fips" in combined or "non fips" in combined or "fips validated" in combined:
             return 3, "Applied FIPS validation deduction based on source data wording."
     return point_value, None
@@ -844,6 +910,7 @@ def control_models_from_records(records: list[dict], target_level: str, poam_ind
                 "family": infer_control_family(raw_identifier),
                 "statusRaw": status_raw,
                 "statusNormalized": status_normalized,
+                "percentageComplete": extract_percentage_complete(record),
                 "sourceRecordId": extract_source_record_id(record),
                 "level": inferred_level,
                 "basePointValue": level_point_value,
@@ -893,6 +960,7 @@ def counts_by_status(results: list[dict]) -> dict[str, int]:
 
 
 def attach_result_fields(control_model: dict, scope: str, point_value: int | None, deduction_applied: int, exception_reason: str | None, level: str) -> dict:
+    control_number = control_number_key(control_model["canonicalControlId"])
     return {
         "controlId": control_model["canonicalControlId"],
         "rawControlId": control_model["rawControlId"],
@@ -902,13 +970,15 @@ def attach_result_fields(control_model: dict, scope: str, point_value: int | Non
         "title": control_model["title"],
         "statusRaw": control_model["statusRaw"],
         "statusNormalized": control_model["statusNormalized"],
+        "percentageComplete": control_model.get("percentageComplete"),
         "pointValue": point_value,
         "deductionApplied": deduction_applied,
         "poamEligible": poam_eligible(level, control_model["canonicalControlId"], point_value),
         "poamLinked": control_model["poamLinked"],
         "poamCount": control_model["poamCount"],
         "exceptionReason": exception_reason or "",
-        "isNoScoreControl": control_model["canonicalControlId"] in L2_NO_SCORE_CONTROLS,
+        "isNoScoreControl": control_model["canonicalControlId"] in L2_NO_SCORE_CONTROLS
+        or control_number in L2_NO_SCORE_CONTROL_NUMBERS,
         "sourceRecordId": control_model["sourceRecordId"],
     }
 
@@ -969,13 +1039,17 @@ def score_level_two(control_models: list[dict], scope_label: str = "Level 2 asse
 
     for control in scoped_controls:
         point_value = control["basePointValue"] if control["basePointValue"] is not None else level_two_point_value(control["canonicalControlId"])
+        control_number = control_number_key(control["canonicalControlId"])
         deduction_applied = 0
         exception_reason = None
         if is_unmet_control(control["statusNormalized"]):
             unmet_controls.append(control)
             if point_value is not None:
                 deduction_applied, exception_reason = special_deduction_for_level_two(control, point_value)
-            if control["canonicalControlId"] in L2_NO_SCORE_CONTROLS:
+            if (
+                control["canonicalControlId"] in L2_NO_SCORE_CONTROLS
+                or control_number in L2_NO_SCORE_CONTROL_NUMBERS
+            ):
                 has_no_score_trigger = True
             if point_value == 5:
                 has_open_five_point_control = True
