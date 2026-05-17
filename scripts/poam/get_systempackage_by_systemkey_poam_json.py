@@ -12,7 +12,31 @@
 #
 # Optional Parameters:
 #    - days (query), type: integer, default: 0
+#    - status (query), type: string, default:
+#    - grouped (query), type: boolean, default:
+#    - securityCheck (query), type: string, default:
+#    - relevance (query), type: string, default:
+#    - likelihood (query), type: string, default:
+#    - impact (query), type: string, default:
+#    - residualrisk (query), type: string, default:
+#    - resultingrisk (query), type: string, default:
+#    - severity (query), type: string, default:
+#    - rawseverity (query), type: string, default:
 #    - devicename (query), type: string, default:
+#    - milestoneEventId (query), type: string, default:
+#    - tags (query), type: string, default:
+#    - onlyFalsePositives (query), type: boolean, default:
+#    - onlyMisleadingInformation (query), type: boolean, default:
+#    - showManual (query), type: boolean, default:
+#    - showChecklist (query), type: boolean, default:
+#    - showPatch (query), type: boolean, default:
+#    - showCompliance (query), type: boolean, default:
+#    - showInherited (query), type: boolean, default:
+#    - showTechVuln (query), type: boolean, default:
+#    - onlyMitigations (query), type: boolean, default:
+#    - begin (query), type: string (MM/dd/yyyy), default:
+#    - end (query), type: string (MM/dd/yyyy), default:
+#    - completedByDate (query), type: string (MM/dd/yyyy), default:
 #
 # Command Line Example:
 #   python3 get_systempackage_by_systemkey_poam_json.py \
@@ -48,14 +72,62 @@ PATH_PARAMETER_NAMES = [
 REQUIRED_QUERY_PARAMETER_NAMES = []
 OPTIONAL_QUERY_PARAMETER_NAMES = [
     'days',
+    'status',
+    'grouped',
+    'securityCheck',
+    'relevance',
+    'likelihood',
+    'impact',
+    'residualrisk',
+    'resultingrisk',
+    'severity',
+    'rawseverity',
     'devicename',
+    'milestoneEventId',
+    'tags',
+    'onlyFalsePositives',
+    'onlyMisleadingInformation',
+    'showManual',
+    'showChecklist',
+    'showPatch',
+    'showCompliance',
+    'showInherited',
+    'showTechVuln',
+    'onlyMitigations',
+    'begin',
+    'end',
+    'completedByDate',
 ]
 REQUIRED_BODY_PARAMETER_NAMES = []
 OPTIONAL_BODY_PARAMETER_NAMES = []
 BINARY_BODY_PARAMETER_NAMES = []
 KNOWN_OPTIONAL_NAMES = [
     'days',
+    'status',
+    'grouped',
+    'securityCheck',
+    'relevance',
+    'likelihood',
+    'impact',
+    'residualrisk',
+    'resultingrisk',
+    'severity',
+    'rawseverity',
     'devicename',
+    'milestoneEventId',
+    'tags',
+    'onlyFalsePositives',
+    'onlyMisleadingInformation',
+    'showManual',
+    'showChecklist',
+    'showPatch',
+    'showCompliance',
+    'showInherited',
+    'showTechVuln',
+    'onlyMitigations',
+    'begin',
+    'end',
+    'completedByDate',
 ]
 FILE_EXTENSION_HINT = None
 ACCEPT_HEADER = 'application/json'
@@ -188,6 +260,8 @@ try:
     request_kwargs = {"headers": headers}
     if form_data:
         request_kwargs["data"] = form_data
+    if False:
+        request_kwargs["stream"] = True
 
     # -------------------------------------------------------
     # Execute the HTTP request
