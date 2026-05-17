@@ -216,3 +216,78 @@ These are administrative, operational, or secondary safeguards. If these are "Op
 * **3.14.8** Block malicious software execution.
 * **3.14.9** Analyze incoming/outgoing communications traffic for anomalies.
 * **3.14.10** Track and verify system integrity.
+
+
+# Level 3 scoring
+
+The scoring architecture changes dramatically when moving from Level 2 to Level 3. Understanding how the point calculations work, the specific 24 controls pulled from NIST SP 800-172, and the exact scoring values is necessary for organizing this data via your OpenRMF API.
+
+---
+
+## 1. The Core Level 3 Scoring Mechanism
+
+The Department of Defense uses a completely separate scoring rubric for Level 3 under **32 CFR § 170.24**.
+
+* **The Baseline:** You start with a perfect score of **24** (representing the 24 advanced practices).
+* **The Deductive System:** Like Level 2, Level 3 uses a negative deductive point system. However, the point weights are different. Controls are weighted as either **1 point** or **5 points**.
+* **The Maximum Penalty Math:** There are **19 five-point controls** and **5 one-point controls**. If you were to fail every single one of them, your score would drop by 100 points ($19 \times 5 + 5 \times 1 = 100$). Therefore, the absolute lowest score you can receive on a Level 3 assessment is **-76** ($24 - 100 = -76$).
+
+### Passing Thresholds for Level 3
+
+* **Final Level 3 Status:** A perfect score of **24** with zero open controls.
+* **Conditional Level 3 Status:** You must achieve a minimum score of **8** (out of 24), and **no 5-point controls** can be open. Any open 1-point controls must be placed on a POA&M and closed within **180 days**.
+
+---
+
+## 2. The 24 Level 3 Controls & Point Breakdown
+
+The 24 Level 3 practices are designed specifically to counter **Advanced Persistent Threats (APTs)**. They are layered directly on top of your existing 110 Level 2 controls. When pulling from your API, map these exact control IDs to the following 5-point and 1-point values:
+
+### 5-Point Advanced Controls (19 Practices)
+
+These are critical architectural and tactical requirements. **None of these are allowed on a POA&M.** If even one is "Open," you fail the Level 3 assessment.
+
+* **AC.L3-3.1.3e** Securely store and isolate information components across distinct security domains (Enhanced Sandboxing/Segmentation).
+* **CM.L3-3.4.1e** Establish and maintain authoritative baseline configurations for high-value assets.
+* **CM.L3-3.4.2e** Automate the verification and enforcement of baseline configurations to detect unauthorized modifications.
+* **IA.L3-3.5.1e** Dual-authorize critical administrative actions (e.g., changing firewalls or deleting backups requires two independent admins to log in).
+* **IA.L3-3.5.2e** Limit the use of administrative privileges to designated, hardened organizational assets.
+* **IR.L3-3.6.1e** Establish and maintain a cyber incident response team capable of continuous coverage.
+* **RA.L3-3.11.1e** Conduct **Threat-Informed Risk Assessments** using cyber threat intelligence regarding APT tactics.
+* **RA.L3-3.11.2e** **Threat Hunting:** Proactively hunt for indicators of compromise (IoCs) and anomalous activity across the network.
+* **RA.L3-3.11.4e** Assess and mitigate risk stemming from supply chain vulnerabilities and single points of failure.
+* **RA.L3-3.11.5e** Assess the effectiveness of security controls against specific, sophisticated adversary TTPs (Tactics, Techniques, and Procedures).
+* **SC.L3-3.13.1e** Employ dynamic isolation techniques (e.g., micro-segmentation) to contain compromised network components.
+* **SC.L3-3.13.2e** Actively disrupt adversary command and control (C2) infrastructure using deceptive network practices.
+* **SC.L3-3.13.3e** Limit the blast radius of a breach by logically separating organizational systems.
+* **SC.L3-3.13.4e** Implement physical or logical isolation of critical system components (Air-gapping or advanced enclaves).
+* **SC.L3-3.13.11e** Utilize cryptographic mechanisms to protect information at rest in high-availability, high-risk repositories.
+* **SI.L3-3.14.1e** Establish a comprehensive system monitoring capability across all incoming and outgoing network perimeters.
+* **SI.L3-3.14.3e** Continuously monitor internal systems and endpoints to detect unauthorized modifications and advanced persistent threats.
+* **SI.L3-3.14.6e** Automatically analyze system logs and security alerts for indications of advanced adversary behavior.
+* **SI.L3-3.14.7e** Ensure rapid remediation and recovery capabilities are engineered into infrastructure configurations following a cyber event.
+
+### 1-Point Advanced Controls (5 Practices)
+
+These are operational enhancements. They **are allowed on a POA&M** for up to 180 days, provided your overall Level 3 score remains 8 or higher.
+
+* **AC.L3-3.1.2e** Restrict access to specific system commands and functions based on advanced contextual factors (e.g., time of day, location).
+* **AT.L3-3.2.1e** Provide advanced, threat-specific security awareness training regarding APT social engineering and watering-hole attacks.
+* **SI.L3-3.14.2e** Automate the distribution and installation of security patches and malware definitions across high-value assets.
+* **SI.L3-3.14.4e** Verify the integrity and authenticity of software and firmware updates prior to installation.
+* **SI.L3-3.14.5e** Constrain and closely monitor the execution of high-risk mobile code (e.g., scripts, macros) within the environment.
+
+---
+
+## 3. How to Structure Your OpenRMF Reporting Logic
+
+To translate your raw OpenRMF API payloads into an executive-ready Level 3 gap analysis, apply the following logic rules to your query results:
+
+1. **The Level 2 Gatekeeper Check:** Scan all 110 Level 2 controls. If your API returns even a single Level 2 control as `Open`, flag the environment as **Ineligible for Level 3 Assessment**.
+2. **The "Automatic Fail" Scan:** Query the 19 Level 3 controls listed in the 5-point section above. If any of those rows return a status of `Open`, the report should instantly output **Status: Failed (Critical 5-Point Blocker)**.
+3. **The Score Multiplier Logic:** For your scoring engine, apply this formula:
+
+$$\text{L3 Score} = 24 - [(\text{Open 5-Pt Controls} \times 5) + (\text{Open 1-Pt Controls} \times 1)]$$
+
+
+4. **The POA&M Eligibility Validation:** If the calculated score is $\geq 8$ and the only open items are from the 1-point list, programmatically flag those specific controls as **"Eligible for 180-day POA&M remediation."** All other gaps must be treated as absolute project blockers.
