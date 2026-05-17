@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ============================================================
-# OpenRMF Professional External API - Systempackage Poam
+# OpenRMF Professional External API - System Package POAM, requires v2.14.01 patch release
 # API Path   : GET /systempackage/{systemKey}/poam
 # Description: Retrieves data from the /systempackage/{systemKey}/poam endpoint. The response is parsed as JSON and printed with standard indentation.
 #
