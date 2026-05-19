@@ -19,6 +19,24 @@ SOURCE_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
 REPORT_TITLE = "OpenRMF Professional POAM Risk"
 STATUS_COLUMNS = ["Ongoing", "Completed", "Accepted"]
 RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low", "Completed", "Accepted", "Not Set"]
+RESIDUAL_RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low"]
+POAM_TYPE_COLUMNS = ["Checklist", "Patch", "Other Technology", "Statement", "Inherited", "Manual/Deleted"]
+ONGOING_TYPE_CHART_TITLES = {
+    "Checklist": "Ongoing Checklist Items",
+    "Patch": "Ongoing Patch Items",
+    "Other Technology": "Ongoing Other Technology Items",
+    "Statement": "Ongoing Compliance Statement Items",
+    "Inherited": "Ongoing Inherited Control Items",
+    "Manual/Deleted": "Ongoing Manual/Deleted Items",
+}
+POAM_TYPE_DEFINITIONS = [
+    ("artifactId", "Checklist"),
+    ("patchScanId", "Patch"),
+    ("vulnScanId", "Other Technology"),
+    ("statementId", "Statement"),
+    ("inheritedControlId", "Inherited"),
+]
+MANUAL_POAM_TYPE = "Manual/Deleted"
 
 
 def get_project_python_executable() -> str:
@@ -214,6 +232,17 @@ def status_field_matches(record: dict, expected_status: str) -> bool:
     return normalize_poam_status(safe_text(record.get("status"))) == expected_status
 
 
+def has_poam_type_value(record: dict, key: str) -> bool:
+    return safe_text(record.get(key)).strip().lower() not in {"", "none", "null"}
+
+
+def poam_type(record: dict) -> str:
+    for key, label in POAM_TYPE_DEFINITIONS:
+        if has_poam_type_value(record, key):
+            return label
+    return MANUAL_POAM_TYPE
+
+
 def residual_risk_mitigation(record: dict) -> str:
     risk_value = residual_risk_level_mitigations_value(record)
     if risk_value.strip().lower() in {"", "null"}:
@@ -251,6 +280,27 @@ def build_risk_totals_by_status(records: list[dict]) -> dict[str, dict[str, int]
     return totals
 
 
+def build_type_totals_by_status(records: list[dict]) -> dict[str, dict[str, int]]:
+    totals = {status: {poam_type_label: 0 for poam_type_label in POAM_TYPE_COLUMNS} for status in STATUS_COLUMNS}
+    for record in records:
+        status = poam_status(record)
+        if status not in totals or not has_residual_risk_mitigation(record):
+            continue
+        totals[status][poam_type(record)] += 1
+    return totals
+
+
+def build_ongoing_type_risk_totals(records: list[dict]) -> dict[str, dict[str, int]]:
+    totals = {poam_type_label: {risk: 0 for risk in RESIDUAL_RISK_COLUMNS} for poam_type_label in POAM_TYPE_COLUMNS}
+    for record in records:
+        if poam_status(record) != "Ongoing" or not has_residual_risk_mitigation(record):
+            continue
+        risk = residual_risk_mitigation(record)
+        if risk in RESIDUAL_RISK_COLUMNS:
+            totals[poam_type(record)][risk] += 1
+    return totals
+
+
 def build_report_data(poamdata, system_key: str) -> dict:
     records = poam_records(poamdata)
     ongoing_records = [record for record in records if poam_status(record) == "Ongoing"]
@@ -266,6 +316,8 @@ def build_report_data(poamdata, system_key: str) -> dict:
         "ongoing_count": len(ongoing_records),
         "risk_totals": build_risk_totals(records),
         "risk_totals_by_status": build_risk_totals_by_status(records),
+        "type_totals_by_status": build_type_totals_by_status(records),
+        "ongoing_type_risk_totals": build_ongoing_type_risk_totals(records),
         "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
     }
 
@@ -285,6 +337,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     styles = getSampleStyleSheet()
     centered_style = ParagraphStyle("Centered", parent=styles["BodyText"], alignment=TA_CENTER)
     box_style = ParagraphStyle("RiskBox", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=12, leading=16)
+    small_chart_title_style = ParagraphStyle("SmallChartTitle", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=8, leading=10)
     risk_colors = {
         "Very High": colors.HexColor("#C00000"),
         "High": colors.HexColor("#ED7D31"),
@@ -295,7 +348,16 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         "Accepted": colors.HexColor("#D9D9D9"),
         "Not Set": colors.HexColor("#A6A6A6"),
     }
+    type_colors = {
+        "Checklist": colors.HexColor("#5B9BD5"),
+        "Patch": colors.HexColor("#D94A73"),
+        "Other Technology": colors.HexColor("#ED7D31"),
+        "Statement": colors.HexColor("#FFC000"),
+        "Inherited": colors.HexColor("#00A6A6"),
+        "Manual/Deleted": colors.HexColor("#8064A2"),
+    }
     light_text_risks = {"Very High", "Very Low"}
+    light_text_types = {"Checklist", "Patch", "Other Technology", "Inherited", "Manual/Deleted"}
     def risk_box_label(risk: str) -> str:
         if risk in {"Very High", "High", "Moderate", "Low", "Very Low"}:
             return f"Ongoing {risk}"
@@ -333,11 +395,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         table.setStyle(TableStyle(table_styles))
         return table
 
-    def build_risk_pie_chart(status: str) -> Drawing:
-        totals = report_data["risk_totals_by_status"][status]
+    def build_type_pie_chart(status: str) -> Drawing:
+        totals = report_data["type_totals_by_status"][status]
         nonzero_totals = [(label, count) for label, count in totals.items() if count]
         drawing = Drawing(170, 225)
-        drawing.add(String(22, 210, f"{status} By Residual Risk", fontName="Helvetica-Bold", fontSize=10))
+        chart_status = "Complete" if status == "Completed" else status
+        drawing.add(String(35, 210, f"{chart_status} By Type", fontName="Helvetica-Bold", fontSize=10))
 
         if nonzero_totals:
             pie_x = 40
@@ -352,7 +415,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             pie.labels = ["" for _ in nonzero_totals]
             pie.slices.strokeWidth = 0.5
             for index, (label, _) in enumerate(nonzero_totals):
-                pie.slices[index].fillColor = risk_colors[label]
+                pie.slices[index].fillColor = type_colors[label]
             drawing.add(pie)
 
             total_count = sum(count for _, count in nonzero_totals)
@@ -371,7 +434,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
                         label_x,
                         label_y,
                         safe_text(count),
-                        fillColor=colors.white if label in light_text_risks else colors.black,
+                        fillColor=colors.white if label in light_text_types else colors.black,
                         fontName="Helvetica-Bold",
                         fontSize=9,
                     )
@@ -381,15 +444,15 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             drawing.add(String(61, 142, "No data", fontSize=8))
 
         legend_y = 82
-        for index, label in enumerate(RISK_COLUMNS):
+        for index, label in enumerate(POAM_TYPE_COLUMNS):
             current_y = legend_y - (index * 12)
-            drawing.add(Rect(16, current_y - 1, 7, 7, fillColor=risk_colors[label], strokeColor=None))
+            drawing.add(Rect(16, current_y - 1, 7, 7, fillColor=type_colors[label], strokeColor=None))
             drawing.add(String(28, current_y, label, fontSize=7))
         return drawing
 
-    def build_risk_pie_charts() -> Table:
+    def build_type_pie_charts() -> Table:
         table = Table(
-            [[build_risk_pie_chart(status) for status in STATUS_COLUMNS]],
+            [[build_type_pie_chart(status) for status in STATUS_COLUMNS]],
             hAlign="CENTER",
             colWidths=[170, 170, 170],
         )
@@ -400,6 +463,56 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 0),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
+        return table
+
+    def build_ongoing_type_risk_chart(poam_type_label: str) -> Table:
+        totals = report_data["ongoing_type_risk_totals"][poam_type_label]
+        rows = [[Paragraph(html.escape(ONGOING_TYPE_CHART_TITLES[poam_type_label]), small_chart_title_style), ""]]
+        rows.extend([[risk, safe_text(totals[risk])] for risk in RESIDUAL_RISK_COLUMNS])
+        table = Table(rows, hAlign="CENTER", colWidths=[118, 32], rowHeights=[26, 18, 18, 18, 18, 18])
+        table_styles = [
+            ("SPAN", (0, 0), (1, 0)),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("GRID", (0, 1), (-1, -1), 0.5, colors.grey),
+            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("FONTNAME", (0, 1), (-1, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 1), (-1, -1), 8),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]
+        for row_index, risk in enumerate(RESIDUAL_RISK_COLUMNS, start=1):
+            table_styles.append(("BACKGROUND", (0, row_index), (1, row_index), risk_colors[risk]))
+            if risk in light_text_risks:
+                table_styles.append(("TEXTCOLOR", (0, row_index), (1, row_index), colors.white))
+        table.setStyle(TableStyle(table_styles))
+        return table
+
+    def build_ongoing_type_risk_charts() -> Table:
+        table = Table(
+            [
+                [build_ongoing_type_risk_chart(poam_type_label) for poam_type_label in POAM_TYPE_COLUMNS[:3]],
+                [build_ongoing_type_risk_chart(poam_type_label) for poam_type_label in POAM_TYPE_COLUMNS[3:]],
+            ],
+            hAlign="CENTER",
+            colWidths=[168, 168, 168],
+            rowHeights=[150, 150],
+        )
+        table.setStyle(
+            TableStyle(
+                [
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
                 ]
             )
         )
@@ -427,7 +540,11 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Spacer(1, 12),
         build_risk_boxes(),
         Spacer(1, 20),
-        build_risk_pie_charts(),
+        build_type_pie_charts(),
+        PageBreak(),
+        Paragraph("Ongoing Items by Type and Residual Risk", styles["Heading1"]),
+        Spacer(1, 12),
+        build_ongoing_type_risk_charts(),
     ]
     document.build(story)
     return True
@@ -449,7 +566,8 @@ def make_text_page(lines: list[str], font_size: int = 10) -> str:
 
 def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
     risk_totals = report_data["risk_totals"]
-    risk_totals_by_status = report_data["risk_totals_by_status"]
+    type_totals_by_status = report_data["type_totals_by_status"]
+    ongoing_type_risk_totals = report_data["ongoing_type_risk_totals"]
     cover_lines = [
         REPORT_TITLE,
         "",
@@ -470,12 +588,28 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         chart_lines.append(compact_text(f"{risk:<26} | {count:>13}", 95))
     chart_lines.append("")
     for status in STATUS_COLUMNS:
-        chart_lines.extend([f"{status} By Residual Risk", "Residual Risk Mitigations | Count", "-------------------------- | -----"])
-        for risk in RISK_COLUMNS:
-            chart_lines.append(compact_text(f"{risk:<26} | {risk_totals_by_status[status][risk]:>5}", 95))
+        chart_status = "Complete" if status == "Completed" else status
+        chart_lines.extend([f"{chart_status} By Type", "POAM Type                 | Count", "------------------------- | -----"])
+        for poam_type_label in POAM_TYPE_COLUMNS:
+            chart_lines.append(compact_text(f"{poam_type_label:<25} | {type_totals_by_status[status][poam_type_label]:>5}", 95))
         chart_lines.append("")
+    ongoing_type_risk_lines = [
+        "Ongoing Items by Type and Residual Risk",
+        "",
+    ]
+    for poam_type_label in POAM_TYPE_COLUMNS:
+        ongoing_type_risk_lines.extend(
+            [
+                ONGOING_TYPE_CHART_TITLES[poam_type_label],
+                "Residual Risk | Count",
+                "------------- | -----",
+            ]
+        )
+        for risk in RESIDUAL_RISK_COLUMNS:
+            ongoing_type_risk_lines.append(compact_text(f"{risk:<13} | {ongoing_type_risk_totals[poam_type_label][risk]:>5}", 95))
+        ongoing_type_risk_lines.append("")
 
-    page_streams = [make_text_page(cover_lines), make_text_page(chart_lines)]
+    page_streams = [make_text_page(cover_lines), make_text_page(chart_lines), make_text_page(ongoing_type_risk_lines)]
     objects = [b"<< /Type /Catalog /Pages 2 0 R >>", b"", b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
     page_object_numbers = []
     for page_stream in page_streams:
