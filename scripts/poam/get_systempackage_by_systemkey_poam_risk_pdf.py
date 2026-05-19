@@ -215,7 +215,10 @@ def status_field_matches(record: dict, expected_status: str) -> bool:
 
 
 def residual_risk_mitigation(record: dict) -> str:
-    return normalize_risk_value(residual_risk_mitigation_value(record))
+    risk_value = residual_risk_level_mitigations_value(record)
+    if risk_value.strip().lower() in {"", "null"}:
+        return "Not Set"
+    return normalize_risk_value(risk_value)
 
 
 def build_risk_totals(records: list[dict]) -> dict[str, int]:
@@ -224,10 +227,14 @@ def build_risk_totals(records: list[dict]) -> dict[str, int]:
         if status_field_matches(record, "Completed"):
             if has_residual_risk_mitigation(record):
                 totals["Completed"] += 1
+            else:
+                totals["Not Set"] += 1
             continue
         if status_field_matches(record, "Accepted"):
             if has_residual_risk_mitigation(record):
                 totals["Accepted"] += 1
+            else:
+                totals["Not Set"] += 1
             continue
         if poam_status(record) == "Ongoing":
             totals[residual_risk_mitigation(record)] += 1
@@ -239,8 +246,6 @@ def build_risk_totals_by_status(records: list[dict]) -> dict[str, dict[str, int]
     for record in records:
         status = poam_status(record)
         if status not in totals:
-            continue
-        if status_field_matches(record, "Completed") and not has_residual_risk_mitigation(record):
             continue
         totals[status][residual_risk_mitigation(record)] += 1
     return totals
