@@ -611,8 +611,6 @@ def build_report_data(poamdata, system_key: str) -> dict:
         "scheduled_completion_type_status_rows": build_scheduled_completion_type_status_rows(records),
         "ongoing_no_scheduled_completion_rows": build_ongoing_no_scheduled_completion_rows(records),
         "false_positive_type_status_rows": build_false_positive_type_status_rows(records),
-        "risk_rows": build_risk_rows(records),
-        "type_risk_rows": build_type_risk_rows(records),
         "raw_severity_type_rows": raw_severity_type_matrix["rows"],
         "raw_severity_labels": raw_severity_type_matrix["severity_labels"],
         "type_residual_risk_mitigations_rows": build_type_residual_risk_mitigations_rows(records),
@@ -680,34 +678,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
                 *[
                     ("BACKGROUND", (column_index, 1), (column_index, -1), background_color)
                     for column_index, background_color in enumerate(status_column_backgrounds, start=1)
-                ],
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-                ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ]
-        )
-    )
-
-    risk_table = Table(
-        [
-            ["Risk Type", *[Paragraph(risk.replace(" ", "<br/>"), table_header_style) for risk in RISK_COLUMNS]],
-            *[
-                [row["risk_type"], row["very_high"], row["high"], row["moderate"], row["low"], row["very_low"]]
-                for row in report_data["risk_rows"]
-            ],
-        ],
-        hAlign="LEFT",
-        colWidths=[175, 65, 65, 65, 65, 65],
-    )
-    risk_table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                *[
-                    ("BACKGROUND", (column_index, 1), (column_index, -1), background_color)
-                    for column_index, background_color in enumerate(risk_column_backgrounds, start=1)
                 ],
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -987,11 +957,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         image_buffer.seek(0)
         return image_buffer
 
-    risk_elements_heatmap_image = build_risk_heatmap(
-        report_data["risk_rows"],
-        "risk_type",
-        "Total by POAM Risk Elements",
-    )
     type_risk_heatmap_image = build_raw_severity_heatmap(
         report_data["raw_severity_type_rows"],
         report_data["raw_severity_labels"],
@@ -1031,22 +996,9 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Spacer(1, 8),
         type_status_table,
         PageBreak(),
-        Paragraph("POAM Risk / Type", styles["Heading1"]),
-        Spacer(1, 12),
-        Paragraph("Total by POAM Risk Elements", styles["Heading2"]),
-        Spacer(1, 8),
-        risk_table,
-        Spacer(1, 18),
-        Paragraph("Total by POAM Risk Elements Heatmap", styles["Heading2"]),
-        Spacer(1, 8),
     ]
-    if risk_elements_heatmap_image:
-        story.append(Image(risk_elements_heatmap_image, width=500, height=220))
-    else:
-        story.append(Paragraph("Total by POAM Risk Elements Heatmap unavailable. Install matplotlib to render it.", styles["Normal"]))
     story.extend(
         [
-            PageBreak(),
             Paragraph("POAM Raw Severity Totals by POAM Item Type", styles["Heading1"]),
             Spacer(1, 12),
             type_risk_table,
@@ -1140,20 +1092,6 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         status_lines.append(
             f"{row['poam_type']:<18}  {row['ongoing']:>7}  {row['completed']:>9}  {row['accepted']:>8}"
         )
-    risk_lines = [
-        "POAM Risk / Type",
-        "",
-        "Total by POAM Risk Elements",
-        "",
-        "Risk Type                  Very High  High  Moderate  Low  Very Low",
-        "-------------------------  ---------  ----  --------  ---  --------",
-    ]
-    for row in report_data["risk_rows"]:
-        risk_lines.append(
-            f"{row['risk_type']:<25}  {row['very_high']:>9}  {row['high']:>4}  {row['moderate']:>8}  {row['low']:>3}  {row['very_low']:>8}"
-        )
-    risk_lines.extend(["", "Total by POAM Risk Elements Heatmap unavailable in fallback PDF output."])
-
     raw_severity_headers = [severity or "Blank" for severity in report_data["raw_severity_labels"]]
     raw_severity_type_lines = [
         "POAM Raw Severity Totals by POAM Item Type",
@@ -1235,7 +1173,6 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         make_text_page(
             status_lines
         ),
-        make_text_page(risk_lines),
         make_text_page(raw_severity_type_lines),
         make_text_page(residual_risk_mitigations_type_lines),
         make_text_page(scheduled_completion_lines),
