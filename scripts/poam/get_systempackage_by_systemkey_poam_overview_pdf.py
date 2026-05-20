@@ -537,6 +537,18 @@ def build_raw_severity_type_matrix(records: list[dict]) -> dict[str, list]:
     }
 
 
+def build_raw_severity_histogram_points(records: list[dict]) -> list[dict[str, str]]:
+    return [
+        {
+            "poam_type": raw_severity_poam_type(record),
+            "severity": normalize_raw_severity_value(
+                first_value(record, ["rawSeverity", "rawSeverityString", "rawSeverityValue"])
+            ),
+        }
+        for record in records
+    ]
+
+
 def build_type_risk_rows(records: list[dict]) -> list[dict[str, str]]:
     poam_type_labels_list = poam_type_labels("default")
     grouped_totals = {
@@ -593,6 +605,24 @@ def build_type_residual_risk_mitigations_rows(records: list[dict]) -> list[dict[
     ]
 
 
+def build_residual_risk_mitigations_histogram_points(records: list[dict]) -> list[dict[str, str]]:
+    points = []
+    for record in records:
+        residual_risk_text = safe_text(record.get("residualRiskLevelMitigations")).strip()
+        if not residual_risk_text:
+            continue
+        normalized_risk = normalize_risk_value(residual_risk_text)
+        if normalized_risk not in RISK_COLUMNS:
+            continue
+        points.append(
+            {
+                "poam_type": poam_type(record),
+                "risk": normalized_risk,
+            }
+        )
+    return points
+
+
 def build_report_data(poamdata, system_key: str) -> dict:
     records = poam_records(poamdata)
     system_title = ""
@@ -613,7 +643,9 @@ def build_report_data(poamdata, system_key: str) -> dict:
         "false_positive_type_status_rows": build_false_positive_type_status_rows(records),
         "raw_severity_type_rows": raw_severity_type_matrix["rows"],
         "raw_severity_labels": raw_severity_type_matrix["severity_labels"],
+        "raw_severity_histogram_points": build_raw_severity_histogram_points(records),
         "type_residual_risk_mitigations_rows": build_type_residual_risk_mitigations_rows(records),
+        "residual_risk_mitigations_histogram_points": build_residual_risk_mitigations_histogram_points(records),
         "poam_count": len(records),
         "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
     }
@@ -842,69 +874,60 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         )
     )
 
-    def build_risk_heatmap(rows: list[dict[str, str]], label_key: str, title: str) -> BytesIO | None:
+    def build_risk_histogram(points: list[dict[str, str]], title: str) -> BytesIO | None:
         try:
             import matplotlib  # pyright: ignore[reportMissingModuleSource]
 
             matplotlib.use("Agg")
-            import matplotlib.patches as mpatches  # pyright: ignore[reportMissingModuleSource]
             import matplotlib.pyplot as plt  # pyright: ignore[reportMissingModuleSource]
         except ImportError:
             return None
 
-        row_labels = [row[label_key] for row in rows]
-        matrix = [
-            [
-                int(row["very_high"]),
-                int(row["high"]),
-                int(row["moderate"]),
-                int(row["low"]),
-                int(row["very_low"]),
-            ]
-            for row in rows
-        ]
-        max_value = max([value for row_values in matrix for value in row_values] or [0])
-        risk_base_colors = [
-            (1.0, 0.0, 0.0),
-            (0.98, 0.5, 0.45),
-            (1.0, 1.0, 1.0),
-            (1.0, 1.0, 0.0),
-            (0.56, 0.93, 0.56),
-        ]
-        heatmap_colors = []
-        for row_values in matrix:
-            heatmap_row = []
-            for column_index, value in enumerate(row_values):
-                intensity = value / max_value if max_value else 0
-                blend_amount = 0.25 + (0.75 * intensity)
-                base_red, base_green, base_blue = risk_base_colors[column_index]
-                heatmap_row.append(
-                    (
-                        1 - ((1 - base_red) * blend_amount),
-                        1 - ((1 - base_green) * blend_amount),
-                        1 - ((1 - base_blue) * blend_amount),
-                    )
-                )
-            heatmap_colors.append(heatmap_row)
+        row_labels = poam_type_labels("default")
+        risk_index = {risk_label: index for index, risk_label in enumerate(RISK_COLUMNS)}
+        type_index = {poam_type_label: index for index, poam_type_label in enumerate(row_labels)}
+
+        x_values = []
+        y_values = []
+        for point in points:
+            risk_label = point["risk"]
+            poam_type_label = point["poam_type"]
+            if risk_label not in risk_index or poam_type_label not in type_index:
+                continue
+            x_values.append(risk_index[risk_label] + 0.5)
+            y_values.append(type_index[poam_type_label] + 0.5)
+
+        if not x_values:
+            return None
 
         figure_height = max(3.0, 0.45 * len(row_labels) + 1.6)
         figure, axis = plt.subplots(figsize=(7.4, figure_height), dpi=150)
-        axis.imshow(heatmap_colors, aspect="auto")
-        axis.set_xticks(range(len(RISK_COLUMNS)), labels=RISK_COLUMNS, rotation=30, ha="right")
-        axis.set_yticks(range(len(row_labels)), labels=row_labels)
+        histogram, _, _, histogram_image = axis.hist2d(
+            x_values,
+            y_values,
+            bins=[list(range(len(RISK_COLUMNS) + 1)), list(range(len(row_labels) + 1))],
+            cmap="YlOrRd",
+        )
+        axis.set_xticks([index + 0.5 for index in range(len(RISK_COLUMNS))], labels=RISK_COLUMNS, rotation=30, ha="right")
+        axis.set_yticks([index + 0.5 for index in range(len(row_labels))], labels=row_labels)
+        axis.set_xlim(0, len(RISK_COLUMNS))
+        axis.set_ylim(0, len(row_labels))
+        axis.invert_yaxis()
         axis.set_title(title)
-        for row_index, row_values in enumerate(matrix):
-            for column_index, value in enumerate(row_values):
-                axis.text(column_index, row_index, safe_text(value), ha="center", va="center", color="black", fontsize=8)
-        axis.set_xticks([index - 0.5 for index in range(1, len(RISK_COLUMNS))], minor=True)
-        axis.set_yticks([index - 0.5 for index in range(1, len(row_labels))], minor=True)
-        axis.grid(which="minor", color="white", linestyle="-", linewidth=1.5)
+        max_count = int(histogram.max()) if histogram.size else 0
+        for risk_label, column_index in risk_index.items():
+            for poam_type_label, row_index in type_index.items():
+                value = int(histogram[column_index][row_index])
+                text_color = "white" if max_count and value >= max(1, round(max_count * 0.45)) else "black"
+                if value == 0:
+                    text_color = "dimgray"
+                axis.text(column_index + 0.5, row_index + 0.5, safe_text(value), ha="center", va="center", color=text_color, fontsize=8)
+        axis.set_xticks(list(range(len(RISK_COLUMNS) + 1)), minor=True)
+        axis.set_yticks(list(range(len(row_labels) + 1)), minor=True)
+        axis.grid(which="minor", color="white", linestyle="-", linewidth=1.2)
         axis.tick_params(which="minor", bottom=False, left=False)
-        legend_handles = [
-            mpatches.Patch(color=risk_base_colors[index], label=risk)
-            for index, risk in enumerate(RISK_COLUMNS)
-        ]
-        axis.legend(handles=legend_handles, loc="upper right", bbox_to_anchor=(1.34, 1.0), title="Risk")
+        colorbar = figure.colorbar(histogram_image, ax=axis)
+        colorbar.set_label("POAM Count")
         figure.tight_layout()
 
         image_buffer = BytesIO()
@@ -913,42 +936,61 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         image_buffer.seek(0)
         return image_buffer
 
-    def build_raw_severity_heatmap(rows: list[dict[str, str]], severity_labels: list[str], title: str) -> BytesIO | None:
+    def build_raw_severity_histogram(points: list[dict[str, str]], severity_labels: list[str], title: str) -> BytesIO | None:
         try:
             import matplotlib  # pyright: ignore[reportMissingModuleSource]
 
             matplotlib.use("Agg")
-            import matplotlib.patches as mpatches  # pyright: ignore[reportMissingModuleSource]
             import matplotlib.pyplot as plt  # pyright: ignore[reportMissingModuleSource]
         except ImportError:
             return None
 
-        row_labels = [row["poam_type"] for row in rows]
-        matrix = [[int(row[severity_label]) for severity_label in severity_labels] for row in rows]
-        base_colors = [raw_severity_background_rgb(severity_label) for severity_label in severity_labels]
-        color_matrix = [base_colors[:] for _ in rows]
+        row_labels = poam_type_labels("raw_severity")
+        severity_index = {severity_label: index for index, severity_label in enumerate(severity_labels)}
+        type_index = {poam_type_label: index for index, poam_type_label in enumerate(row_labels)}
+
+        x_values = []
+        y_values = []
+        for point in points:
+            severity_label = point["severity"]
+            poam_type_label = point["poam_type"]
+            if severity_label not in severity_index or poam_type_label not in type_index:
+                continue
+            x_values.append(severity_index[severity_label] + 0.5)
+            y_values.append(type_index[poam_type_label] + 0.5)
+
+        if not x_values:
+            return None
 
         figure_width = max(7.4, 1.9 + (1.05 * len(severity_labels)))
         figure_height = max(3.0, 0.5 * len(row_labels) + 1.6)
         figure, axis = plt.subplots(figsize=(figure_width, figure_height), dpi=150)
-        axis.imshow(color_matrix, aspect="auto")
-        axis.set_xticks(range(len(severity_labels)), labels=[severity or "Blank" for severity in severity_labels], rotation=30, ha="right")
-        axis.set_yticks(range(len(row_labels)), labels=row_labels)
+        histogram, _, _, histogram_image = axis.hist2d(
+            x_values,
+            y_values,
+            bins=[list(range(len(severity_labels) + 1)), list(range(len(row_labels) + 1))],
+            cmap="YlOrRd",
+        )
+        axis.set_xticks([index + 0.5 for index in range(len(severity_labels))], labels=[severity or "Blank" for severity in severity_labels], rotation=30, ha="right")
+        axis.set_yticks([index + 0.5 for index in range(len(row_labels))], labels=row_labels)
+        axis.set_xlim(0, len(severity_labels))
+        axis.set_ylim(0, len(row_labels))
+        axis.invert_yaxis()
         axis.set_title(title)
-        for row_index, row_values in enumerate(matrix):
-            for column_index, value in enumerate(row_values):
-                text_color = "white" if severity_labels[column_index].strip().lower() in {"critical", "high"} else "black"
-                axis.text(column_index, row_index, safe_text(value), ha="center", va="center", color=text_color, fontsize=8)
-        axis.set_xticks([index - 0.5 for index in range(1, len(severity_labels))], minor=True)
-        axis.set_yticks([index - 0.5 for index in range(1, len(row_labels))], minor=True)
-        axis.grid(which="minor", color="white", linestyle="-", linewidth=1.5)
+        max_count = int(histogram.max()) if histogram.size else 0
+        for severity_label, column_index in severity_index.items():
+            for poam_type_label, row_index in type_index.items():
+                value = int(histogram[column_index][row_index])
+                text_color = "white" if max_count and value >= max(1, round(max_count * 0.45)) else "black"
+                if value == 0:
+                    text_color = "dimgray"
+                axis.text(column_index + 0.5, row_index + 0.5, safe_text(value), ha="center", va="center", color=text_color, fontsize=8)
+        axis.set_xticks(list(range(len(severity_labels) + 1)), minor=True)
+        axis.set_yticks(list(range(len(row_labels) + 1)), minor=True)
+        axis.grid(which="minor", color="white", linestyle="-", linewidth=1.2)
         axis.tick_params(which="minor", bottom=False, left=False)
-        legend_handles = [
-            mpatches.Patch(color=base_colors[index], label=severity_labels[index] or "Blank")
-            for index in range(len(severity_labels))
-        ]
-        if legend_handles:
-            axis.legend(handles=legend_handles, loc="upper right", bbox_to_anchor=(1.28, 1.0), title="Raw Severity")
+        colorbar = figure.colorbar(histogram_image, ax=axis)
+        colorbar.set_label("POAM Count")
         figure.tight_layout()
 
         image_buffer = BytesIO()
@@ -957,15 +999,14 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         image_buffer.seek(0)
         return image_buffer
 
-    type_risk_heatmap_image = build_raw_severity_heatmap(
-        report_data["raw_severity_type_rows"],
+    type_risk_heatmap_image = build_raw_severity_histogram(
+        report_data["raw_severity_histogram_points"],
         report_data["raw_severity_labels"],
-        "POAM Raw Severity Totals by POAM Item Type",
+        "POAM Raw Severity Totals by POAM Item Type 2D Histogram",
     )
-    residual_risk_mitigations_type_heatmap_image = build_risk_heatmap(
-        report_data["type_residual_risk_mitigations_rows"],
-        "poam_type",
-        "POAM Residual Risk Mitigations Totals by POAM Type",
+    residual_risk_mitigations_type_heatmap_image = build_risk_histogram(
+        report_data["residual_risk_mitigations_histogram_points"],
+        "POAM Residual Risk Mitigations Totals by POAM Type 2D Histogram",
     )
 
     document = SimpleDocTemplate(
@@ -1003,14 +1044,14 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             Spacer(1, 12),
             type_risk_table,
             Spacer(1, 18),
-            Paragraph("POAM Raw Severity Totals by POAM Item Type Heat Map", styles["Heading2"]),
+            Paragraph("POAM Raw Severity Totals by POAM Item Type 2D Histogram", styles["Heading2"]),
             Spacer(1, 8),
         ]
     )
     if type_risk_heatmap_image:
         story.append(Image(type_risk_heatmap_image, width=500, height=240))
     else:
-        story.append(Paragraph("POAM Raw Severity Totals by POAM Item Type Heat Map unavailable. Install matplotlib to render it.", styles["Normal"]))
+        story.append(Paragraph("POAM Raw Severity Totals by POAM Item Type 2D Histogram unavailable. Install matplotlib to render it.", styles["Normal"]))
     story.extend(
         [
             PageBreak(),
@@ -1018,14 +1059,14 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             Spacer(1, 12),
             residual_risk_mitigations_type_table,
             Spacer(1, 18),
-            Paragraph("POAM Residual Risk Mitigations Totals by POAM Type Heatmap", styles["Heading2"]),
+            Paragraph("POAM Residual Risk Mitigations Totals by POAM Type 2D Histogram", styles["Heading2"]),
             Spacer(1, 8),
         ]
     )
     if residual_risk_mitigations_type_heatmap_image:
         story.append(Image(residual_risk_mitigations_type_heatmap_image, width=500, height=240))
     else:
-        story.append(Paragraph("POAM Residual Risk Mitigations Totals by POAM Type Heatmap unavailable. Install matplotlib to render it.", styles["Normal"]))
+        story.append(Paragraph("POAM Residual Risk Mitigations Totals by POAM Type 2D Histogram unavailable. Install matplotlib to render it.", styles["Normal"]))
     story.extend(
         [
             PageBreak(),
@@ -1103,7 +1144,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         raw_severity_type_lines.append(
             f"{row['poam_type']:<24}  " + "  ".join(f"{row[severity_label]:>12}" for severity_label in report_data["raw_severity_labels"])
         )
-    raw_severity_type_lines.extend(["", "POAM Raw Severity Totals by POAM Item Type Heat Map unavailable in fallback PDF output."])
+    raw_severity_type_lines.extend(["", "POAM Raw Severity Totals by POAM Item Type 2D Histogram unavailable in fallback PDF output."])
     residual_risk_mitigations_type_lines = [
         "POAM Residual Risk Mitigations Totals by POAM Type",
         "",
@@ -1115,7 +1156,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
             f"{row['poam_type']:<25}  {row['very_high']:>9}  {row['high']:>4}  {row['moderate']:>8}  {row['low']:>3}  {row['very_low']:>8}"
         )
     residual_risk_mitigations_type_lines.extend(
-        ["", "POAM Residual Risk Mitigations Totals by POAM Type Heatmap unavailable in fallback PDF output."]
+        ["", "POAM Residual Risk Mitigations Totals by POAM Type 2D Histogram unavailable in fallback PDF output."]
     )
     scheduled_completion_lines = [
         "Scheduled Completion by POAM Status and Type",
