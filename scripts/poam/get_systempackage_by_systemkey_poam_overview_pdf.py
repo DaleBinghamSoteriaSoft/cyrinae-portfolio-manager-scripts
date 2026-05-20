@@ -442,6 +442,38 @@ def build_type_risk_rows(records: list[dict]) -> list[dict[str, str]]:
     ]
 
 
+def poam_residual_risk_mitigations_risk(record: dict) -> str:
+    residual_risk = first_value(
+        record,
+        ["residualRiskLevelMitigations", "residualRiskLevelMitigation", "resultingRisk"],
+    )
+    return normalize_risk_value(residual_risk)
+
+
+def build_type_residual_risk_mitigations_rows(records: list[dict]) -> list[dict[str, str]]:
+    poam_type_labels = [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
+    grouped_totals = {
+        label: {risk: 0 for risk in RISK_COLUMNS}
+        for label in poam_type_labels
+    }
+    for record in records:
+        risk = poam_residual_risk_mitigations_risk(record)
+        if risk in RISK_COLUMNS:
+            grouped_totals[poam_type(record)][risk] += 1
+
+    return [
+        {
+            "poam_type": label,
+            "very_high": safe_text(grouped_totals[label]["Very High"]),
+            "high": safe_text(grouped_totals[label]["High"]),
+            "moderate": safe_text(grouped_totals[label]["Moderate"]),
+            "low": safe_text(grouped_totals[label]["Low"]),
+            "very_low": safe_text(grouped_totals[label]["Very Low"]),
+        }
+        for label in poam_type_labels
+    ]
+
+
 def build_report_data(poamdata, system_key: str) -> dict:
     records = poam_records(poamdata)
     system_title = ""
@@ -460,6 +492,7 @@ def build_report_data(poamdata, system_key: str) -> dict:
         "false_positive_type_status_rows": build_false_positive_type_status_rows(records),
         "risk_rows": build_risk_rows(records),
         "type_risk_rows": build_type_risk_rows(records),
+        "type_residual_risk_mitigations_rows": build_type_residual_risk_mitigations_rows(records),
         "poam_count": len(records),
         "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
     }
@@ -574,6 +607,34 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         colWidths=[175, 65, 65, 65, 65, 65],
     )
     type_risk_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                *[
+                    ("BACKGROUND", (column_index, 1), (column_index, -1), background_color)
+                    for column_index, background_color in enumerate(risk_column_backgrounds, start=1)
+                ],
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+                ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+
+    residual_risk_mitigations_type_table = Table(
+        [
+            ["POAM Type", *[Paragraph(risk.replace(" ", "<br/>"), table_header_style) for risk in RISK_COLUMNS]],
+            *[
+                [row["poam_type"], row["very_high"], row["high"], row["moderate"], row["low"], row["very_low"]]
+                for row in report_data["type_residual_risk_mitigations_rows"]
+            ],
+        ],
+        hAlign="LEFT",
+        colWidths=[175, 65, 65, 65, 65, 65],
+    )
+    residual_risk_mitigations_type_table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
@@ -753,6 +814,11 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         "poam_type",
         "Total by POAM Raw Severity by POAM Type",
     )
+    residual_risk_mitigations_type_heatmap_image = build_risk_heatmap(
+        report_data["type_residual_risk_mitigations_rows"],
+        "poam_type",
+        "Total by POAM Residual Risk Mitigations by POAM Type",
+    )
 
     document = SimpleDocTemplate(
         str(output_path),
@@ -810,6 +876,21 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         story.append(Image(type_risk_heatmap_image, width=500, height=240))
     else:
         story.append(Paragraph("Total by POAM Raw Severity by POAM Type Heatmap unavailable. Install matplotlib to render it.", styles["Normal"]))
+    story.extend(
+        [
+            PageBreak(),
+            Paragraph("Total by POAM Residual Risk Mitigations by POAM Type", styles["Heading1"]),
+            Spacer(1, 12),
+            residual_risk_mitigations_type_table,
+            Spacer(1, 18),
+            Paragraph("Total by POAM Residual Risk Mitigations by POAM Type Heatmap", styles["Heading2"]),
+            Spacer(1, 8),
+        ]
+    )
+    if residual_risk_mitigations_type_heatmap_image:
+        story.append(Image(residual_risk_mitigations_type_heatmap_image, width=500, height=240))
+    else:
+        story.append(Paragraph("Total by POAM Residual Risk Mitigations by POAM Type Heatmap unavailable. Install matplotlib to render it.", styles["Normal"]))
     story.extend(
         [
             PageBreak(),
@@ -901,6 +982,19 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
             f"{row['poam_type']:<25}  {row['very_high']:>9}  {row['high']:>4}  {row['moderate']:>8}  {row['low']:>3}  {row['very_low']:>8}"
         )
     raw_severity_type_lines.extend(["", "Total by POAM Raw Severity by POAM Type Heatmap unavailable in fallback PDF output."])
+    residual_risk_mitigations_type_lines = [
+        "Total by POAM Residual Risk Mitigations by POAM Type",
+        "",
+        "POAM Type                  Very High  High  Moderate  Low  Very Low",
+        "-------------------------  ---------  ----  --------  ---  --------",
+    ]
+    for row in report_data["type_residual_risk_mitigations_rows"]:
+        residual_risk_mitigations_type_lines.append(
+            f"{row['poam_type']:<25}  {row['very_high']:>9}  {row['high']:>4}  {row['moderate']:>8}  {row['low']:>3}  {row['very_low']:>8}"
+        )
+    residual_risk_mitigations_type_lines.extend(
+        ["", "Total by POAM Residual Risk Mitigations by POAM Type Heatmap unavailable in fallback PDF output."]
+    )
     scheduled_completion_lines = [
         "Scheduled Completion by POAM Status and Type",
         "",
@@ -959,6 +1053,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         ),
         make_text_page(risk_lines),
         make_text_page(raw_severity_type_lines),
+        make_text_page(residual_risk_mitigations_type_lines),
         make_text_page(scheduled_completion_lines),
         make_text_page(false_positive_lines),
     ]
