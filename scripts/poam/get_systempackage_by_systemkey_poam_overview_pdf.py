@@ -36,14 +36,30 @@ SOURCE_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
 REPORT_TITLE = "OpenRMF Professional POAM Overview"
 STATUS_COLUMNS = ["Ongoing", "Completed", "Accepted"]
 RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low"]
-POAM_TYPE_DEFINITIONS = [
-    ("artifactId", "Checklist Vulnerability"),
-    ("patchScanId", "Patch Vulnerability"),
-    ("statementId", "Compliance Statement"),
-    ("inheritedControlId", "Inherited Controls"),
-    ("vulnScanId", "Technology Vulnerability"),
-]
-MANUAL_POAM_TYPE = "Manually Added / Deleted Items"
+POAM_TYPE_CONTEXTS = {
+    "default": {
+        "order": ["artifactId", "patchScanId", "statementId", "inheritedControlId", "vulnScanId"],
+        "labels": {
+            "artifactId": "Checklist Vulnerability",
+            "patchScanId": "Patch Vulnerability",
+            "statementId": "Compliance Statement",
+            "inheritedControlId": "Inherited Controls",
+            "vulnScanId": "Technology Vulnerability",
+        },
+        "manual_label": "Manually Added / Deleted Items",
+    },
+    "raw_severity": {
+        "order": ["artifactId", "patchScanId", "vulnScanId", "statementId", "inheritedControlId"],
+        "labels": {
+            "artifactId": "Checklist",
+            "patchScanId": "Patch Scan",
+            "vulnScanId": "Other Technology Scan",
+            "statementId": "Compliance Statement",
+            "inheritedControlId": "Inherited Control",
+        },
+        "manual_label": "Manual/Deleted",
+    },
+}
 POAM_RISK_DEFINITIONS = [
     ("Raw Severity", ["rawSeverity", "rawSeverityString", "rawSeverityValue"]),
     ("Severity", ["severity", "severityString", "severityName"]),
@@ -216,19 +232,33 @@ def has_poam_type_value(record: dict, key: str) -> bool:
     return safe_text(value).strip().lower() not in {"", "none", "null"}
 
 
-def poam_type(record: dict) -> str:
-    for key, label in POAM_TYPE_DEFINITIONS:
+def poam_type_labels(context_name: str) -> list[str]:
+    context = POAM_TYPE_CONTEXTS[context_name]
+    return [context["labels"][key] for key in context["order"]] + [context["manual_label"]]
+
+
+def poam_type_label(record: dict, context_name: str) -> str:
+    context = POAM_TYPE_CONTEXTS[context_name]
+    for key in context["order"]:
         if has_poam_type_value(record, key):
-            return label
-    return MANUAL_POAM_TYPE
+            return context["labels"][key]
+    return context["manual_label"]
+
+
+def poam_type(record: dict) -> str:
+    return poam_type_label(record, "default")
+
+
+def raw_severity_poam_type(record: dict) -> str:
+    return poam_type_label(record, "raw_severity")
 
 
 def build_type_status_rows(records: list[dict]) -> list[dict[str, str]]:
+    poam_type_labels_list = poam_type_labels("default")
     grouped_totals = {
         label: {status: 0 for status in STATUS_COLUMNS}
-        for _, label in POAM_TYPE_DEFINITIONS
+        for label in poam_type_labels_list
     }
-    grouped_totals[MANUAL_POAM_TYPE] = {status: 0 for status in STATUS_COLUMNS}
     for record in records:
         status = poam_status(record)
         if status not in STATUS_COLUMNS:
@@ -242,7 +272,7 @@ def build_type_status_rows(records: list[dict]) -> list[dict[str, str]]:
             "completed": safe_text(grouped_totals[label]["Completed"]),
             "accepted": safe_text(grouped_totals[label]["Accepted"]),
         }
-        for label in [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
+        for label in poam_type_labels_list
     ]
 
 
@@ -290,12 +320,12 @@ def is_past_due_ongoing(record: dict) -> bool:
 
 
 def build_scheduled_completion_type_status_rows(records: list[dict]) -> list[dict[str, str]]:
-    poam_type_labels = [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
+    poam_type_labels_list = poam_type_labels("default")
     grouped_totals = {
         label: {status: 0 for status in STATUS_COLUMNS}
-        for label in poam_type_labels
+        for label in poam_type_labels_list
     }
-    past_due_ongoing_totals = {label: 0 for label in poam_type_labels}
+    past_due_ongoing_totals = {label: 0 for label in poam_type_labels_list}
     for record in records:
         if not has_scheduled_completion_date(record):
             continue
@@ -313,13 +343,13 @@ def build_scheduled_completion_type_status_rows(records: list[dict]) -> list[dic
             "accepted": safe_text(grouped_totals[label]["Accepted"]),
             "past_due_ongoing": safe_text(past_due_ongoing_totals[label]),
         }
-        for label in poam_type_labels
+        for label in poam_type_labels_list
     ]
 
 
 def build_ongoing_no_scheduled_completion_rows(records: list[dict]) -> list[dict[str, str]]:
-    poam_type_labels = [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
-    grouped_totals = {label: 0 for label in poam_type_labels}
+    poam_type_labels_list = poam_type_labels("default")
+    grouped_totals = {label: 0 for label in poam_type_labels_list}
     for record in records:
         if poam_status(record) == "Ongoing" and not has_scheduled_completion_date(record):
             grouped_totals[poam_type(record)] += 1
@@ -329,7 +359,7 @@ def build_ongoing_no_scheduled_completion_rows(records: list[dict]) -> list[dict
             "poam_type": label,
             "ongoing_no_scheduled_completion": safe_text(grouped_totals[label]),
         }
-        for label in poam_type_labels
+        for label in poam_type_labels_list
     ]
 
 
@@ -343,10 +373,10 @@ def bool_value(value) -> bool:
 
 
 def build_false_positive_type_status_rows(records: list[dict]) -> list[dict[str, str]]:
-    poam_type_labels = [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
+    poam_type_labels_list = poam_type_labels("default")
     grouped_totals = {
         label: {status: 0 for status in STATUS_COLUMNS}
-        for label in poam_type_labels
+        for label in poam_type_labels_list
     }
     for record in records:
         if not bool_value(record.get("falsePositive")):
@@ -362,7 +392,7 @@ def build_false_positive_type_status_rows(records: list[dict]) -> list[dict[str,
             "completed": safe_text(grouped_totals[label]["Completed"]),
             "accepted": safe_text(grouped_totals[label]["Accepted"]),
         }
-        for label in poam_type_labels
+        for label in poam_type_labels_list
     ]
 
 
@@ -418,11 +448,100 @@ def poam_raw_severity_risk(record: dict) -> str:
     return normalize_risk_value(raw_severity)
 
 
+def normalize_raw_severity_value(value) -> str:
+    raw_severity_text = safe_text(value).strip()
+    normalized_text = raw_severity_text.lower().replace("_", " ").replace("-", " ")
+    if not normalized_text:
+        return ""
+    if normalized_text in {"4", "critical", "cat i", "cat 1", "i"}:
+        return "Critical"
+    if normalized_text in {"3", "high", "cat ii", "cat 2", "ii"}:
+        return "High"
+    if normalized_text in {"2", "medium", "moderate", "cat iii", "cat 3", "iii"}:
+        return "Medium"
+    if normalized_text in {"1", "low"}:
+        return "Low"
+    return raw_severity_text
+
+
+def raw_severity_sort_key(value: str) -> tuple[int, str]:
+    normalized_value = value.lower()
+    severity_order = {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "low": 3,
+        "": 99,
+    }
+    return (severity_order.get(normalized_value, 50), normalized_value)
+
+
+def raw_severity_background_color(colors_module, severity: str):
+    severity_key = severity.strip().lower()
+    if severity_key == "critical":
+        return colors_module.HexColor("#8B0000")
+    if severity_key == "high":
+        return colors_module.red
+    if severity_key == "medium":
+        return colors_module.orange
+    if severity_key == "low":
+        return colors_module.yellow
+    return colors_module.white
+
+
+def raw_severity_background_rgb(severity: str) -> tuple[float, float, float]:
+    severity_key = severity.strip().lower()
+    if severity_key == "critical":
+        return (0.545, 0.0, 0.0)
+    if severity_key == "high":
+        return (1.0, 0.0, 0.0)
+    if severity_key == "medium":
+        return (1.0, 0.647, 0.0)
+    if severity_key == "low":
+        return (1.0, 1.0, 0.0)
+    return (1.0, 1.0, 1.0)
+
+
+def build_raw_severity_type_matrix(records: list[dict]) -> dict[str, list]:
+    poam_type_labels_list = poam_type_labels("raw_severity")
+    severity_labels = sorted(
+        {
+            normalize_raw_severity_value(first_value(record, ["rawSeverity", "rawSeverityString", "rawSeverityValue"]))
+            for record in records
+        },
+        key=raw_severity_sort_key,
+    )
+    if not severity_labels:
+        severity_labels = [""]
+
+    grouped_totals = {
+        poam_type_label: {severity_label: 0 for severity_label in severity_labels}
+        for poam_type_label in poam_type_labels_list
+    }
+    for record in records:
+        severity_label = normalize_raw_severity_value(first_value(record, ["rawSeverity", "rawSeverityString", "rawSeverityValue"]))
+        if severity_label not in grouped_totals[poam_type_labels_list[0]]:
+            continue
+        grouped_totals[raw_severity_poam_type(record)][severity_label] += 1
+
+    rows = []
+    for poam_type_label in poam_type_labels_list:
+        row = {"poam_type": poam_type_label}
+        for severity_label in severity_labels:
+            row[severity_label] = safe_text(grouped_totals[poam_type_label][severity_label])
+        rows.append(row)
+
+    return {
+        "severity_labels": severity_labels,
+        "rows": rows,
+    }
+
+
 def build_type_risk_rows(records: list[dict]) -> list[dict[str, str]]:
-    poam_type_labels = [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
+    poam_type_labels_list = poam_type_labels("default")
     grouped_totals = {
         label: {risk: 0 for risk in RISK_COLUMNS}
-        for label in poam_type_labels
+        for label in poam_type_labels_list
     }
     for record in records:
         risk = poam_raw_severity_risk(record)
@@ -438,7 +557,7 @@ def build_type_risk_rows(records: list[dict]) -> list[dict[str, str]]:
             "low": safe_text(grouped_totals[label]["Low"]),
             "very_low": safe_text(grouped_totals[label]["Very Low"]),
         }
-        for label in poam_type_labels
+        for label in poam_type_labels_list
     ]
 
 
@@ -451,10 +570,10 @@ def poam_residual_risk_mitigations_risk(record: dict) -> str:
 
 
 def build_type_residual_risk_mitigations_rows(records: list[dict]) -> list[dict[str, str]]:
-    poam_type_labels = [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
+    poam_type_labels_list = poam_type_labels("default")
     grouped_totals = {
         label: {risk: 0 for risk in RISK_COLUMNS}
-        for label in poam_type_labels
+        for label in poam_type_labels_list
     }
     for record in records:
         risk = poam_residual_risk_mitigations_risk(record)
@@ -470,7 +589,7 @@ def build_type_residual_risk_mitigations_rows(records: list[dict]) -> list[dict[
             "low": safe_text(grouped_totals[label]["Low"]),
             "very_low": safe_text(grouped_totals[label]["Very Low"]),
         }
-        for label in poam_type_labels
+        for label in poam_type_labels_list
     ]
 
 
@@ -482,6 +601,8 @@ def build_report_data(poamdata, system_key: str) -> dict:
         if system_title:
             break
 
+    raw_severity_type_matrix = build_raw_severity_type_matrix(records)
+
     return {
         "system_key": system_key,
         "system_title": system_title or "Unknown",
@@ -492,6 +613,8 @@ def build_report_data(poamdata, system_key: str) -> dict:
         "false_positive_type_status_rows": build_false_positive_type_status_rows(records),
         "risk_rows": build_risk_rows(records),
         "type_risk_rows": build_type_risk_rows(records),
+        "raw_severity_type_rows": raw_severity_type_matrix["rows"],
+        "raw_severity_labels": raw_severity_type_matrix["severity_labels"],
         "type_residual_risk_mitigations_rows": build_type_residual_risk_mitigations_rows(records),
         "poam_count": len(records),
         "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
@@ -595,30 +718,46 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         )
     )
 
+    raw_severity_labels = report_data["raw_severity_labels"]
+    raw_severity_table_headers = [
+        "POAM Item Type",
+        *[
+            Paragraph((severity or "Blank").replace(" ", "<br/>"), table_header_style)
+            for severity in raw_severity_labels
+        ],
+    ]
+    raw_severity_table_width = letter[0] - 144
+    raw_severity_label_column_width = max(120, min(160, raw_severity_table_width * 0.3))
+    raw_severity_value_column_width = (raw_severity_table_width - raw_severity_label_column_width) / max(len(raw_severity_labels), 1)
     type_risk_table = Table(
         [
-            ["POAM Type", *[Paragraph(risk.replace(" ", "<br/>"), table_header_style) for risk in RISK_COLUMNS]],
+            raw_severity_table_headers,
             *[
-                [row["poam_type"], row["very_high"], row["high"], row["moderate"], row["low"], row["very_low"]]
-                for row in report_data["type_risk_rows"]
+                [row["poam_type"], *[row[severity_label] for severity_label in raw_severity_labels]]
+                for row in report_data["raw_severity_type_rows"]
             ],
         ],
         hAlign="LEFT",
-        colWidths=[175, 65, 65, 65, 65, 65],
+        colWidths=[raw_severity_label_column_width, *([raw_severity_value_column_width] * len(raw_severity_labels))],
     )
     type_risk_table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
                 *[
-                    ("BACKGROUND", (column_index, 1), (column_index, -1), background_color)
-                    for column_index, background_color in enumerate(risk_column_backgrounds, start=1)
+                    ("BACKGROUND", (column_index, 1), (column_index, -1), raw_severity_background_color(colors, severity_label))
+                    for column_index, severity_label in enumerate(raw_severity_labels, start=1)
                 ],
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("ALIGN", (0, 0), (-1, 0), "CENTER"),
                 ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                *[
+                    ("TEXTCOLOR", (column_index, 1), (column_index, -1), colors.white)
+                    for column_index, severity_label in enumerate(raw_severity_labels, start=1)
+                    if severity_label.strip().lower() in {"critical", "high"}
+                ],
             ]
         )
     )
@@ -804,20 +943,64 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         image_buffer.seek(0)
         return image_buffer
 
+    def build_raw_severity_heatmap(rows: list[dict[str, str]], severity_labels: list[str], title: str) -> BytesIO | None:
+        try:
+            import matplotlib  # pyright: ignore[reportMissingModuleSource]
+
+            matplotlib.use("Agg")
+            import matplotlib.patches as mpatches  # pyright: ignore[reportMissingModuleSource]
+            import matplotlib.pyplot as plt  # pyright: ignore[reportMissingModuleSource]
+        except ImportError:
+            return None
+
+        row_labels = [row["poam_type"] for row in rows]
+        matrix = [[int(row[severity_label]) for severity_label in severity_labels] for row in rows]
+        base_colors = [raw_severity_background_rgb(severity_label) for severity_label in severity_labels]
+        color_matrix = [base_colors[:] for _ in rows]
+
+        figure_width = max(7.4, 1.9 + (1.05 * len(severity_labels)))
+        figure_height = max(3.0, 0.5 * len(row_labels) + 1.6)
+        figure, axis = plt.subplots(figsize=(figure_width, figure_height), dpi=150)
+        axis.imshow(color_matrix, aspect="auto")
+        axis.set_xticks(range(len(severity_labels)), labels=[severity or "Blank" for severity in severity_labels], rotation=30, ha="right")
+        axis.set_yticks(range(len(row_labels)), labels=row_labels)
+        axis.set_title(title)
+        for row_index, row_values in enumerate(matrix):
+            for column_index, value in enumerate(row_values):
+                text_color = "white" if severity_labels[column_index].strip().lower() in {"critical", "high"} else "black"
+                axis.text(column_index, row_index, safe_text(value), ha="center", va="center", color=text_color, fontsize=8)
+        axis.set_xticks([index - 0.5 for index in range(1, len(severity_labels))], minor=True)
+        axis.set_yticks([index - 0.5 for index in range(1, len(row_labels))], minor=True)
+        axis.grid(which="minor", color="white", linestyle="-", linewidth=1.5)
+        axis.tick_params(which="minor", bottom=False, left=False)
+        legend_handles = [
+            mpatches.Patch(color=base_colors[index], label=severity_labels[index] or "Blank")
+            for index in range(len(severity_labels))
+        ]
+        if legend_handles:
+            axis.legend(handles=legend_handles, loc="upper right", bbox_to_anchor=(1.28, 1.0), title="Raw Severity")
+        figure.tight_layout()
+
+        image_buffer = BytesIO()
+        figure.savefig(image_buffer, format="png", bbox_inches="tight")
+        plt.close(figure)
+        image_buffer.seek(0)
+        return image_buffer
+
     risk_elements_heatmap_image = build_risk_heatmap(
         report_data["risk_rows"],
         "risk_type",
         "Total by POAM Risk Elements",
     )
-    type_risk_heatmap_image = build_risk_heatmap(
-        report_data["type_risk_rows"],
-        "poam_type",
-        "Total by POAM Raw Severity by POAM Type",
+    type_risk_heatmap_image = build_raw_severity_heatmap(
+        report_data["raw_severity_type_rows"],
+        report_data["raw_severity_labels"],
+        "POAM Raw Severity Totals by POAM Item Type",
     )
     residual_risk_mitigations_type_heatmap_image = build_risk_heatmap(
         report_data["type_residual_risk_mitigations_rows"],
         "poam_type",
-        "Total by POAM Residual Risk Mitigations by POAM Type",
+        "POAM Residual Risk Mitigations Totals by POAM Type",
     )
 
     document = SimpleDocTemplate(
@@ -864,33 +1047,33 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     story.extend(
         [
             PageBreak(),
-            Paragraph("Total by POAM Raw Severity by POAM Type", styles["Heading1"]),
+            Paragraph("POAM Raw Severity Totals by POAM Item Type", styles["Heading1"]),
             Spacer(1, 12),
             type_risk_table,
             Spacer(1, 18),
-            Paragraph("Total by POAM Raw Severity by POAM Type Heatmap", styles["Heading2"]),
+            Paragraph("POAM Raw Severity Totals by POAM Item Type Heat Map", styles["Heading2"]),
             Spacer(1, 8),
         ]
     )
     if type_risk_heatmap_image:
         story.append(Image(type_risk_heatmap_image, width=500, height=240))
     else:
-        story.append(Paragraph("Total by POAM Raw Severity by POAM Type Heatmap unavailable. Install matplotlib to render it.", styles["Normal"]))
+        story.append(Paragraph("POAM Raw Severity Totals by POAM Item Type Heat Map unavailable. Install matplotlib to render it.", styles["Normal"]))
     story.extend(
         [
             PageBreak(),
-            Paragraph("Total by POAM Residual Risk Mitigations by POAM Type", styles["Heading1"]),
+            Paragraph("POAM Residual Risk Mitigations Totals by POAM Type", styles["Heading1"]),
             Spacer(1, 12),
             residual_risk_mitigations_type_table,
             Spacer(1, 18),
-            Paragraph("Total by POAM Residual Risk Mitigations by POAM Type Heatmap", styles["Heading2"]),
+            Paragraph("POAM Residual Risk Mitigations Totals by POAM Type Heatmap", styles["Heading2"]),
             Spacer(1, 8),
         ]
     )
     if residual_risk_mitigations_type_heatmap_image:
         story.append(Image(residual_risk_mitigations_type_heatmap_image, width=500, height=240))
     else:
-        story.append(Paragraph("Total by POAM Residual Risk Mitigations by POAM Type Heatmap unavailable. Install matplotlib to render it.", styles["Normal"]))
+        story.append(Paragraph("POAM Residual Risk Mitigations Totals by POAM Type Heatmap unavailable. Install matplotlib to render it.", styles["Normal"]))
     story.extend(
         [
             PageBreak(),
@@ -971,19 +1154,20 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         )
     risk_lines.extend(["", "Total by POAM Risk Elements Heatmap unavailable in fallback PDF output."])
 
+    raw_severity_headers = [severity or "Blank" for severity in report_data["raw_severity_labels"]]
     raw_severity_type_lines = [
-        "Total by POAM Raw Severity by POAM Type",
+        "POAM Raw Severity Totals by POAM Item Type",
         "",
-        "POAM Type                  Very High  High  Moderate  Low  Very Low",
-        "-------------------------  ---------  ----  --------  ---  --------",
+        "POAM Item Type            " + "  ".join(f"{header[:12]:>12}" for header in raw_severity_headers),
+        "------------------------  " + "  ".join(["------------" for _ in raw_severity_headers]),
     ]
-    for row in report_data["type_risk_rows"]:
+    for row in report_data["raw_severity_type_rows"]:
         raw_severity_type_lines.append(
-            f"{row['poam_type']:<25}  {row['very_high']:>9}  {row['high']:>4}  {row['moderate']:>8}  {row['low']:>3}  {row['very_low']:>8}"
+            f"{row['poam_type']:<24}  " + "  ".join(f"{row[severity_label]:>12}" for severity_label in report_data["raw_severity_labels"])
         )
-    raw_severity_type_lines.extend(["", "Total by POAM Raw Severity by POAM Type Heatmap unavailable in fallback PDF output."])
+    raw_severity_type_lines.extend(["", "POAM Raw Severity Totals by POAM Item Type Heat Map unavailable in fallback PDF output."])
     residual_risk_mitigations_type_lines = [
-        "Total by POAM Residual Risk Mitigations by POAM Type",
+        "POAM Residual Risk Mitigations Totals by POAM Type",
         "",
         "POAM Type                  Very High  High  Moderate  Low  Very Low",
         "-------------------------  ---------  ----  --------  ---  --------",
@@ -993,7 +1177,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
             f"{row['poam_type']:<25}  {row['very_high']:>9}  {row['high']:>4}  {row['moderate']:>8}  {row['low']:>3}  {row['very_low']:>8}"
         )
     residual_risk_mitigations_type_lines.extend(
-        ["", "Total by POAM Residual Risk Mitigations by POAM Type Heatmap unavailable in fallback PDF output."]
+        ["", "POAM Residual Risk Mitigations Totals by POAM Type Heatmap unavailable in fallback PDF output."]
     )
     scheduled_completion_lines = [
         "Scheduled Completion by POAM Status and Type",
