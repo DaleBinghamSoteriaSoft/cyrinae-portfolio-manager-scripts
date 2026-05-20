@@ -16,7 +16,7 @@ from pathlib import Path
 
 REQUIRED_ARGUMENT_COUNT = 5
 SOURCE_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
-REPORT_TITLE = "OpenRMF Professional POAM Risk"
+REPORT_TITLE = "OpenRMF Professional POAM Residual Risk"
 STATUS_COLUMNS = ["Ongoing", "Completed", "Accepted"]
 RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low", "Completed", "Accepted", "Not Set"]
 RESIDUAL_RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low"]
@@ -654,7 +654,7 @@ def main() -> None:
     system_key = sys.argv[4]
     poamdata = parse_json_value_from_output(call_poam_json_script(sys.argv[1:]))
     report_data = build_report_data(poamdata, system_key)
-    output_filename = f"OpenRMFPro-POAM-risk-{safe_filename_value(report_data['system_key'])}.pdf"
+    output_filename = f"OpenRMFPro-POAM-Residual-Risk-Overview-{safe_filename_value(report_data['system_key'])}.pdf"
     output_path = Path(output_filename)
     pdf_writer = write_pdf(output_path, report_data)
     print(f"Created PDF: {output_path}")
