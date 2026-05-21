@@ -176,8 +176,6 @@ try:
     # -------------------------------------------------------
     headers = CaseInsensitiveDict()
     headers["Authorization"] = f"Bearer {authorization_token}"
-    if ACCEPT_HEADER:
-        headers["Accept"] = ACCEPT_HEADER
 
     request_kwargs = {"headers": headers}
     if form_data:
