@@ -84,5 +84,6 @@ source .env/bin/activate
 python3 -m pip install requests
 python3 -m pip install pandas
 python3 -m pip install reportlab
+python3 -m pip install matplotlib
 ```
 
