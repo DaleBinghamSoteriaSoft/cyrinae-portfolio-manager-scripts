@@ -897,7 +897,7 @@ def main() -> None:
     system_key = sys.argv[4]
     poamdata = parse_json_value_from_output(call_poam_json_script(sys.argv[1:]))
     report_data = build_report_data(poamdata, system_key)
-    output_filename = f"OpenRMFPro-POAM-Visual-{safe_filename_value(report_data['system_key'])}.pdf"
+    output_filename = f"OpenRMFPro-POAM-Raw-Serverity-Overview-{safe_filename_value(report_data['system_key'])}.pdf"
     output_path = Path(output_filename)
     pdf_writer = write_pdf(output_path, report_data)
     print(f"Created PDF: {output_filename}")
