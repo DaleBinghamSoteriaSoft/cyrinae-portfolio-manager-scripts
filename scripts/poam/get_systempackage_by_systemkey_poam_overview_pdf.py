@@ -89,7 +89,7 @@ def call_poam_json_script(arguments: list[str]) -> str:
     return result.stdout
 
 
-def parse_json_value_from_output(output: str) -> object:
+def parse_json_value_from_output(output: str):
     decoder = json.JSONDecoder()
     for index, character in enumerate(output):
         if character not in "[{":
@@ -100,7 +100,9 @@ def parse_json_value_from_output(output: str) -> object:
             continue
         return parsed
 
-    raise ValueError("ERROR: Could not find JSON in the POAM JSON script output.\n" + output)
+    print("ERROR: Could not find JSON in the POAM JSON script output.")
+    print(output)
+    sys.exit(1)
 
 
 def safe_text(value) -> str:
@@ -214,33 +216,19 @@ def has_poam_type_value(record: dict, key: str) -> bool:
     return safe_text(value).strip().lower() not in {"", "none", "null"}
 
 
-def poam_type_labels(context_name: str) -> list[str]:
-    context = POAM_TYPE_CONTEXTS[context_name]
-    return [context["labels"][key] for key in context["order"]] + [context["manual_label"]]
-
-
-def poam_type_label(record: dict, context_name: str) -> str:
-    context = POAM_TYPE_CONTEXTS[context_name]
-    for key in context["order"]:
-        if has_poam_type_value(record, key):
-            return context["labels"][key]
-    return context["manual_label"]
-
-
 def poam_type(record: dict) -> str:
-    return poam_type_label(record, "default")
-
-
-def raw_severity_poam_type(record: dict) -> str:
-    return poam_type_label(record, "raw_severity")
+    for key, label in POAM_TYPE_DEFINITIONS:
+        if has_poam_type_value(record, key):
+            return label
+    return MANUAL_POAM_TYPE
 
 
 def build_type_status_rows(records: list[dict]) -> list[dict[str, str]]:
-    poam_type_labels_list = poam_type_labels("default")
     grouped_totals = {
         label: {status: 0 for status in STATUS_COLUMNS}
-        for label in poam_type_labels_list
+        for _, label in POAM_TYPE_DEFINITIONS
     }
+    grouped_totals[MANUAL_POAM_TYPE] = {status: 0 for status in STATUS_COLUMNS}
     for record in records:
         status = poam_status(record)
         if status not in STATUS_COLUMNS:
@@ -254,7 +242,7 @@ def build_type_status_rows(records: list[dict]) -> list[dict[str, str]]:
             "completed": safe_text(grouped_totals[label]["Completed"]),
             "accepted": safe_text(grouped_totals[label]["Accepted"]),
         }
-        for label in poam_type_labels_list
+        for label in [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
     ]
 
 
@@ -302,12 +290,12 @@ def is_past_due_ongoing(record: dict) -> bool:
 
 
 def build_scheduled_completion_type_status_rows(records: list[dict]) -> list[dict[str, str]]:
-    poam_type_labels_list = poam_type_labels("default")
+    poam_type_labels = [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
     grouped_totals = {
         label: {status: 0 for status in STATUS_COLUMNS}
-        for label in poam_type_labels_list
+        for label in poam_type_labels
     }
-    past_due_ongoing_totals = {label: 0 for label in poam_type_labels_list}
+    past_due_ongoing_totals = {label: 0 for label in poam_type_labels}
     for record in records:
         if not has_scheduled_completion_date(record):
             continue
@@ -325,13 +313,13 @@ def build_scheduled_completion_type_status_rows(records: list[dict]) -> list[dic
             "accepted": safe_text(grouped_totals[label]["Accepted"]),
             "past_due_ongoing": safe_text(past_due_ongoing_totals[label]),
         }
-        for label in poam_type_labels_list
+        for label in poam_type_labels
     ]
 
 
 def build_ongoing_no_scheduled_completion_rows(records: list[dict]) -> list[dict[str, str]]:
-    poam_type_labels_list = poam_type_labels("default")
-    grouped_totals = {label: 0 for label in poam_type_labels_list}
+    poam_type_labels = [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
+    grouped_totals = {label: 0 for label in poam_type_labels}
     for record in records:
         if poam_status(record) == "Ongoing" and not has_scheduled_completion_date(record):
             grouped_totals[poam_type(record)] += 1
@@ -341,7 +329,7 @@ def build_ongoing_no_scheduled_completion_rows(records: list[dict]) -> list[dict
             "poam_type": label,
             "ongoing_no_scheduled_completion": safe_text(grouped_totals[label]),
         }
-        for label in poam_type_labels_list
+        for label in poam_type_labels
     ]
 
 
@@ -355,10 +343,10 @@ def bool_value(value) -> bool:
 
 
 def build_false_positive_type_status_rows(records: list[dict]) -> list[dict[str, str]]:
-    poam_type_labels_list = poam_type_labels("default")
+    poam_type_labels = [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
     grouped_totals = {
         label: {status: 0 for status in STATUS_COLUMNS}
-        for label in poam_type_labels_list
+        for label in poam_type_labels
     }
     for record in records:
         if not bool_value(record.get("falsePositive")):
@@ -374,7 +362,7 @@ def build_false_positive_type_status_rows(records: list[dict]) -> list[dict[str,
             "completed": safe_text(grouped_totals[label]["Completed"]),
             "accepted": safe_text(grouped_totals[label]["Accepted"]),
         }
-        for label in poam_type_labels_list
+        for label in poam_type_labels
     ]
 
 
@@ -473,10 +461,10 @@ def poam_residual_risk_mitigations_risk(record: dict) -> str:
 
 
 def build_type_residual_risk_mitigations_rows(records: list[dict]) -> list[dict[str, str]]:
-    poam_type_labels_list = poam_type_labels("default")
+    poam_type_labels = [*[label for _, label in POAM_TYPE_DEFINITIONS], MANUAL_POAM_TYPE]
     grouped_totals = {
         label: {risk: 0 for risk in RISK_COLUMNS}
-        for label in poam_type_labels_list
+        for label in poam_type_labels
     }
     for record in records:
         risk = poam_residual_risk_mitigations_risk(record)
@@ -492,26 +480,8 @@ def build_type_residual_risk_mitigations_rows(records: list[dict]) -> list[dict[
             "low": safe_text(grouped_totals[label]["Low"]),
             "very_low": safe_text(grouped_totals[label]["Very Low"]),
         }
-        for label in poam_type_labels_list
+        for label in poam_type_labels
     ]
-
-
-def build_residual_risk_mitigations_histogram_points(records: list[dict]) -> list[dict[str, str]]:
-    points = []
-    for record in records:
-        residual_risk_text = safe_text(record.get("residualRiskLevelMitigations")).strip()
-        if not residual_risk_text:
-            continue
-        normalized_risk = normalize_risk_value(residual_risk_text)
-        if normalized_risk not in RISK_COLUMNS:
-            continue
-        points.append(
-            {
-                "poam_type": poam_type(record),
-                "risk": normalized_risk,
-            }
-        )
-    return points
 
 
 def build_report_data(poamdata, system_key: str) -> dict:
@@ -521,8 +491,6 @@ def build_report_data(poamdata, system_key: str) -> dict:
         system_title = first_value(record, ["systemTitle", "title", "systemName"])
         if system_title:
             break
-
-    raw_severity_type_matrix = build_raw_severity_type_matrix(records)
 
     return {
         "system_key": system_key,
@@ -534,7 +502,6 @@ def build_report_data(poamdata, system_key: str) -> dict:
         "false_positive_type_status_rows": build_false_positive_type_status_rows(records),
         "raw_severity_item_type_rows": build_raw_severity_item_type_rows(records),
         "type_residual_risk_mitigations_rows": build_type_residual_risk_mitigations_rows(records),
-        "residual_risk_mitigations_histogram_points": build_residual_risk_mitigations_histogram_points(records),
         "poam_count": len(records),
         "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
     }
@@ -919,7 +886,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     story.extend(
         [
             PageBreak(),
-            Paragraph("POAM Residual Risk Mitigations Totals by POAM Type", styles["Heading1"]),
+            Paragraph("Total by POAM Residual Risk Mitigations by POAM Type", styles["Heading1"]),
             Spacer(1, 12),
             residual_risk_mitigations_type_table,
             Spacer(1, 18),
@@ -1010,7 +977,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
     raw_severity_type_lines.extend(["", "POAM Raw Severity by POAM Item Type 2D Histogram unavailable in fallback PDF output."])
 
     residual_risk_mitigations_type_lines = [
-        "POAM Residual Risk Mitigations Totals by POAM Type",
+        "Total by POAM Residual Risk Mitigations by POAM Type",
         "",
         "POAM Type                  Very High  High  Moderate  Low  Very Low",
         "-------------------------  ---------  ----  --------  ---  --------",

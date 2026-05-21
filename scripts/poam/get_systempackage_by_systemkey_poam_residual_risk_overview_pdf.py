@@ -16,7 +16,7 @@ from pathlib import Path
 
 REQUIRED_ARGUMENT_COUNT = 5
 SOURCE_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
-REPORT_TITLE = "OpenRMF Professional POAM Residual Risk"
+REPORT_TITLE = "OpenRMF Professional POAM Risk"
 STATUS_COLUMNS = ["Ongoing", "Completed", "Accepted"]
 RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low", "Completed", "Accepted", "Not Set"]
 RESIDUAL_RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low"]
