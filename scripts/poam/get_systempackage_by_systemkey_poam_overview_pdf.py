@@ -89,7 +89,7 @@ def call_poam_json_script(arguments: list[str]) -> str:
     return result.stdout
 
 
-def parse_json_value_from_output(output: str) -> object:
+def parse_json_value_from_output(output: str):
     decoder = json.JSONDecoder()
     for index, character in enumerate(output):
         if character not in "[{":
@@ -100,7 +100,9 @@ def parse_json_value_from_output(output: str) -> object:
             continue
         return parsed
 
-    raise ValueError("ERROR: Could not find JSON in the POAM JSON script output.\n" + output)
+    print("ERROR: Could not find JSON in the POAM JSON script output.")
+    print(output)
+    raise ValueError("Could not find JSON in the POAM JSON script output.")
 
 
 def safe_text(value) -> str:
