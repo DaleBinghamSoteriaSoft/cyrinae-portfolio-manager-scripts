@@ -102,7 +102,7 @@ def parse_json_value_from_output(output: str):
 
     print("ERROR: Could not find JSON in the POAM JSON script output.")
     print(output)
-    sys.exit(1)
+    raise ValueError("Could not find JSON in the POAM JSON script output.")
 
 
 def safe_text(value) -> str:
