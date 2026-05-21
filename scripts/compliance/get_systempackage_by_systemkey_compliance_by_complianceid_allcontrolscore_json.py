@@ -182,8 +182,6 @@ try:
     request_kwargs = {"headers": headers}
     if form_data:
         request_kwargs["data"] = form_data
-    if False:
-        request_kwargs["stream"] = True
 
     # -------------------------------------------------------
     # Execute the HTTP request
