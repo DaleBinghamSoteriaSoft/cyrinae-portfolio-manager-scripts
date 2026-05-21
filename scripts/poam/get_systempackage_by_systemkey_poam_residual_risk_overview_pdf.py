@@ -657,7 +657,7 @@ def main() -> None:
     output_filename = f"OpenRMFPro-POAM-Residual-Risk-Overview-{safe_filename_value(report_data['system_key'])}.pdf"
     output_path = Path(output_filename)
     pdf_writer = write_pdf(output_path, report_data)
-    print(f"Created PDF: {output_path}")
+    print(f"Created PDF: {output_filename}")
     if pdf_writer == "fallback":
         print("NOTE: reportlab was not installed. Created the PDF with the built-in lightweight fallback writer.")
 
