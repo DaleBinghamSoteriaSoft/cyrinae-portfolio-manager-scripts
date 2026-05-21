@@ -732,42 +732,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         )
         return table
 
-    def build_item_table(items: list[dict[str, str]]) -> LongTable | Paragraph:
-        if not items:
-            return Paragraph("No items found for this status.", styles["Normal"])
-        rows = [[Paragraph(label, table_header_style) for label in ["POAM ID", "Severity", "Control", "Scheduled Completion", "Type / Source", "Description"]]]
-        for item in items:
-            rows.append(
-                [
-                    Paragraph(html.escape(item["id"]), table_cell_style),
-                    Paragraph(html.escape(item["severity"]), table_cell_style),
-                    Paragraph(html.escape(item["control"]), table_cell_style),
-                    Paragraph(html.escape(item["scheduled_completion"]), table_cell_style),
-                    Paragraph(html.escape(item["type"]), table_cell_style),
-                    Paragraph(html.escape(item["description"]), table_cell_style),
-                ]
-            )
-        table = LongTable(rows, repeatRows=1, hAlign="LEFT", colWidths=[70, 58, 68, 78, 100, 330])
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D9E2F3")),
-                    ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8F9FB")]),
-                ]
-            )
-        )
-        for row_index, item in enumerate(items, start=1):
-            severity_color = severity_colors.get(item["severity"])
-            if severity_color:
-                table.setStyle(TableStyle([("BACKGROUND", (1, row_index), (1, row_index), severity_color)]))
-                if item["severity"] in {"Critical", "High"}:
-                    table.setStyle(TableStyle([("TEXTCOLOR", (1, row_index), (1, row_index), colors.white)]))
-        return table
-
     document = SimpleDocTemplate(
         str(output_path),
         pagesize=landscape(letter),
