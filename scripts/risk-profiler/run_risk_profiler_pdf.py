@@ -16,6 +16,7 @@ from pathlib import Path
 REQUIRED_ARGUMENT_COUNT = 5
 REPORT_TITLE = "OpenRMF Professional Risk Profiler"
 SYSTEM_PACKAGE_SCRIPT_NAME = "get_systempackage_by_systemkey_json.py"
+POAM_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
 STATUS_COLUMNS = ["Open", "Not a Finding", "Not Applicable", "Not Reviewed"]
 
 
@@ -43,6 +44,19 @@ def call_system_package_json_script(arguments: list[str]) -> str:
 	result = subprocess.run([get_project_python_executable(), str(source_script), *arguments], capture_output=True, text=True)
 	if result.returncode != 0:
 		print("ERROR: The system package JSON script failed.")
+		if result.stdout.strip():
+			print(result.stdout.strip())
+		if result.stderr.strip():
+			print(result.stderr.strip())
+		sys.exit(result.returncode)
+	return result.stdout
+
+
+def call_poam_json_script(arguments: list[str]) -> str:
+	source_script = Path(__file__).resolve().parents[1] / "poam" / POAM_SCRIPT_NAME
+	result = subprocess.run([get_project_python_executable(), str(source_script), *arguments], capture_output=True, text=True)
+	if result.returncode != 0:
+		print("ERROR: The POAM JSON script failed.")
 		if result.stdout.strip():
 			print(result.stdout.strip())
 		if result.stderr.strip():
@@ -120,6 +134,248 @@ def numeric_count(value: str) -> int:
 		return 0
 
 
+def safe_text(value) -> str:
+	if value is None:
+		return ""
+	return str(value)
+
+
+def first_value(record: dict, keys: list[str]) -> str:
+	for key in keys:
+		value = record.get(key)
+		if value not in (None, ""):
+			return safe_text(value)
+	return ""
+
+
+def looks_like_poam_record(value: dict) -> bool:
+	poam_keys = {
+		"poamItemId",
+		"poamLinkedId",
+		"controlVulnerabilityDescription",
+		"securityControlNumber",
+		"status",
+		"statusString",
+		"poamStatus",
+		"scheduledCompletionDate",
+	}
+	return bool(poam_keys.intersection(value.keys()))
+
+
+def find_record_list(data, candidate_keys: list[str]) -> list[dict]:
+	if isinstance(data, list):
+		return [record for record in data if isinstance(record, dict)]
+	if not isinstance(data, dict):
+		return []
+	if looks_like_poam_record(data):
+		return [data]
+
+	for key in candidate_keys:
+		value = data.get(key)
+		if isinstance(value, list):
+			return [record for record in value if isinstance(record, dict)]
+
+	for value in data.values():
+		if isinstance(value, list) and all(isinstance(record, dict) for record in value):
+			return value
+	return []
+
+
+def poam_records(poam_data) -> list[dict]:
+	return find_record_list(poam_data, ["records", "items", "data", "results", "poam", "poams", "poamItems", "poamRecords"])
+
+
+def scheduled_completion_value(record: dict) -> str:
+	return first_value(record, ["scheduledCompletionDate"])
+
+
+def residual_risk_mitigation_value(record: dict) -> str:
+	return safe_text(record.get("residualRiskLevelMitigations"))
+
+
+def office_organization_value(record: dict) -> str:
+	return safe_text(record.get("officeOrganization"))
+
+
+def is_empty_value(value: str) -> bool:
+	return safe_text(value).strip().lower() in {"", "none", "null"}
+
+
+def bool_value(value) -> bool:
+	if isinstance(value, bool):
+		return value
+	if isinstance(value, (int, float)):
+		return value != 0
+	return safe_text(value).strip().lower() in {"true", "yes", "y", "1"}
+
+
+def is_very_high_risk_value(value: str) -> bool:
+	return safe_text(value).strip().lower().replace("_", " ").replace("-", " ") in {"very high", "veryhigh", "critical"}
+
+
+def normalize_poam_status(value: str) -> str:
+	value_text = safe_text(value).strip().lower().replace("_", " ").replace("-", " ")
+	if value_text in {"completed", "complete", "closed"}:
+		return "Completed"
+	if value_text in {"accepted", "risk accepted", "risk acceptance"}:
+		return "Accepted"
+	if value_text in {"ongoing", "on going", "in progress", "active", "open", "new"}:
+		return "Ongoing"
+	return safe_text(value).strip() or "Other"
+
+
+def poam_status(record: dict) -> str:
+	return normalize_poam_status(first_value(record, ["status", "statusString", "poamStatus", "poamStatusString", "poamStatusName", "workflowStatus", "state"]))
+
+
+def parse_date_value(value):
+	value_text = safe_text(value).strip()
+	if not value_text:
+		return None
+
+	normalized_value = value_text.replace("Z", "+00:00")
+	try:
+		return datetime.fromisoformat(normalized_value).astimezone().date()
+	except ValueError:
+		pass
+
+	for date_format in ("%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %I:%M %p", "%m/%d/%Y", "%Y-%m-%d"):
+		try:
+			return datetime.strptime(value_text, date_format).date()
+		except ValueError:
+			continue
+	return None
+
+
+def build_poam_risk_area(poam_data) -> dict[str, str]:
+	records = poam_records(poam_data)
+	today = datetime.now().astimezone().date()
+	scheduled_count = 0
+	past_due_count = 0
+	for record in records:
+		scheduled_date = parse_date_value(scheduled_completion_value(record))
+		if scheduled_date is None:
+			continue
+		scheduled_count += 1
+		if scheduled_date < today:
+			past_due_count += 1
+	return {
+		"risk": "High" if past_due_count else "Low",
+		"past_due_count": str(past_due_count),
+		"not_past_due_count": str(scheduled_count - past_due_count),
+		"scheduled_count": str(scheduled_count),
+		"total_count": str(len(records)),
+		"as_of_date": today.strftime("%Y-%m-%d"),
+	}
+
+
+def build_poam_residual_risk_area(poam_data) -> dict[str, str]:
+	records = poam_records(poam_data)
+	total_count = len(records)
+	empty_count = sum(1 for record in records if is_empty_value(residual_risk_mitigation_value(record)))
+	empty_percent = (empty_count / total_count * 100) if total_count else 0
+	if empty_percent > 75:
+		risk = "High"
+	elif empty_percent > 50:
+		risk = "Moderate"
+	elif empty_percent > 25:
+		risk = "Low"
+	else:
+		risk = "Low"
+	return {
+		"risk": risk,
+		"empty_count": str(empty_count),
+		"high_empty_count": str(empty_count if risk == "High" else 0),
+		"moderate_empty_count": str(empty_count if risk == "Moderate" else 0),
+		"low_empty_count": str(empty_count if risk == "Low" else 0),
+		"total_count": str(total_count),
+		"empty_percent": f"{empty_percent:.1f}%",
+	}
+
+
+def build_poam_ongoing_risk_area(poam_data) -> dict[str, str]:
+	records = poam_records(poam_data)
+	ongoing_count = sum(1 for record in records if poam_status(record) == "Ongoing")
+	accepted_count = sum(1 for record in records if poam_status(record) == "Accepted")
+	accepted_percent = (accepted_count / ongoing_count * 100) if ongoing_count else 0
+	if accepted_percent > 25:
+		risk = "High"
+	elif accepted_percent > 15:
+		risk = "Moderate"
+	else:
+		risk = "Low"
+	return {
+		"risk": risk,
+		"ongoing_count": str(ongoing_count),
+		"accepted_count": str(accepted_count),
+		"accepted_percent": f"{accepted_percent:.1f}%",
+	}
+
+
+def build_poam_ongoing_residual_risk_area(poam_data) -> dict[str, str]:
+	records = poam_records(poam_data)
+	ongoing_records = [record for record in records if poam_status(record) == "Ongoing"]
+	ongoing_count = len(ongoing_records)
+	very_high_count = sum(1 for record in ongoing_records if is_very_high_risk_value(residual_risk_mitigation_value(record)))
+	very_high_percent = (very_high_count / ongoing_count * 100) if ongoing_count else 0
+	if very_high_percent > 25:
+		risk = "High"
+	elif very_high_percent > 10:
+		risk = "Moderate"
+	elif very_high_percent > 5:
+		risk = "Low"
+	else:
+		risk = "Low"
+	return {
+		"risk": risk,
+		"ongoing_count": str(ongoing_count),
+		"very_high_count": str(very_high_count),
+		"very_high_percent": f"{very_high_percent:.1f}%",
+	}
+
+
+def build_poam_office_organization_ongoing_risk_area(poam_data) -> dict[str, str]:
+	records = poam_records(poam_data)
+	ongoing_records = [record for record in records if poam_status(record) == "Ongoing"]
+	ongoing_count = len(ongoing_records)
+	empty_count = sum(1 for record in ongoing_records if is_empty_value(office_organization_value(record)))
+	empty_percent = (empty_count / ongoing_count * 100) if ongoing_count else 0
+	if ongoing_count and empty_count == ongoing_count:
+		risk = "High"
+	elif empty_percent > 50:
+		risk = "Moderate"
+	elif empty_percent > 25:
+		risk = "Low"
+	else:
+		risk = "Low"
+	return {
+		"risk": risk,
+		"ongoing_count": str(ongoing_count),
+		"empty_count": str(empty_count),
+		"empty_percent": f"{empty_percent:.1f}%",
+	}
+
+
+def build_poam_false_positives_risk_area(poam_data) -> dict[str, str]:
+	records = poam_records(poam_data)
+	completed_records = [record for record in records if poam_status(record) == "Completed"]
+	completed_count = len(completed_records)
+	false_positive_count = sum(1 for record in completed_records if bool_value(record.get("falsePositive")))
+	false_positive_percent = (false_positive_count / completed_count * 100) if completed_count else 0
+	if false_positive_percent >= 50:
+		risk = "High"
+	elif false_positive_percent >= 20:
+		risk = "Moderate"
+	else:
+		risk = "Low"
+	return {
+		"risk": risk,
+		"completed_count": str(completed_count),
+		"false_positive_count": str(false_positive_count),
+		"false_positive_percent": f"{false_positive_percent:.1f}%",
+	}
+
+
 def build_cat_status_rows(system_package: dict) -> list[dict[str, str]]:
 	score = system_package.get("score", {}) if isinstance(system_package, dict) else {}
 	if not isinstance(score, dict):
@@ -168,13 +424,19 @@ def build_patch_vulnerability_risk_rows(system_package: dict) -> list[dict[str, 
 	]
 
 
-def build_report_data(system_key: str, options: dict[str, str], system_package: dict) -> dict[str, str]:
+def build_report_data(system_key: str, options: dict[str, str], system_package: dict, poam_data) -> dict[str, str]:
 	return {
 		"system_key": system_key,
 		"framework_title": framework_value(system_package, options, {"frameworkTitle", "frameworktitle", "framework_title"}, "frameworkTitle", "frameworktitle", "framework_title"),
 		"framework_version": framework_value(system_package, options, {"frameworkVersion", "frameworkversion", "framework_version"}, "frameworkVersion", "frameworkversion", "framework_version"),
 		"cat_status_rows": build_cat_status_rows(system_package),
 		"patch_vulnerability_risk_rows": build_patch_vulnerability_risk_rows(system_package),
+		"poam_risk_area": build_poam_risk_area(poam_data),
+		"poam_residual_risk_area": build_poam_residual_risk_area(poam_data),
+		"poam_ongoing_risk_area": build_poam_ongoing_risk_area(poam_data),
+		"poam_ongoing_residual_risk_area": build_poam_ongoing_residual_risk_area(poam_data),
+		"poam_office_organization_ongoing_risk_area": build_poam_office_organization_ongoing_risk_area(poam_data),
+		"poam_false_positives_risk_area": build_poam_false_positives_risk_area(poam_data),
 		"generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
 		"source_script": Path(__file__).name,
 	}
@@ -242,6 +504,208 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 				("TEXTCOLOR", (1, 1), (1, 2), colors.white),
 				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
 				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
+	poam_risk_area = report_data["poam_risk_area"]
+	poam_risk_table = Table(
+		[
+			["Metric", "Value"],
+			["Total POAM Records", poam_risk_area["total_count"]],
+			["Scheduled Completion Dates", poam_risk_area["scheduled_count"]],
+			["Not Past Due Scheduled Completion Dates", poam_risk_area["not_past_due_count"]],
+			["Past Due Scheduled Completion Dates", poam_risk_area["past_due_count"]],
+		],
+		hAlign="LEFT",
+		colWidths=[260, 180],
+	)
+	poam_risk_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("BACKGROUND", (1, 4), (1, 4), colors.red),
+				("TEXTCOLOR", (1, 4), (1, 4), colors.white),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
+	poam_residual_risk_area = report_data["poam_residual_risk_area"]
+	poam_residual_risk_table = Table(
+		[
+			["Metric", "Value"],
+			["Total POAM Records", poam_residual_risk_area["total_count"]],
+			["Empty Resulting Residual Risk Mitigation Fields", poam_residual_risk_area["empty_count"]],
+			["Empty Percentage", poam_residual_risk_area["empty_percent"]],
+			["Risk", poam_residual_risk_area["risk"]],
+		],
+		hAlign="LEFT",
+		colWidths=[300, 140],
+	)
+	residual_risk_color = colors.red
+	residual_risk_text_color = colors.white
+	if poam_residual_risk_area["risk"] == "Moderate":
+		residual_risk_color = colors.orange
+		residual_risk_text_color = colors.black
+	elif poam_residual_risk_area["risk"] == "Low":
+		residual_risk_color = colors.yellow
+		residual_risk_text_color = colors.black
+	poam_residual_risk_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("BACKGROUND", (1, 4), (1, 4), residual_risk_color),
+				("TEXTCOLOR", (1, 4), (1, 4), residual_risk_text_color),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
+	poam_ongoing_risk_area = report_data["poam_ongoing_risk_area"]
+	poam_ongoing_risk_table = Table(
+		[
+			["Metric", "Value"],
+			["Ongoing Items", poam_ongoing_risk_area["ongoing_count"]],
+			["Accepted Items", poam_ongoing_risk_area["accepted_count"]],
+			["Accepted Percentage of Ongoing Items", poam_ongoing_risk_area["accepted_percent"]],
+			["Risk", poam_ongoing_risk_area["risk"]],
+		],
+		hAlign="LEFT",
+		colWidths=[300, 140],
+	)
+	ongoing_risk_color = colors.red
+	ongoing_risk_text_color = colors.white
+	if poam_ongoing_risk_area["risk"] == "Moderate":
+		ongoing_risk_color = colors.orange
+		ongoing_risk_text_color = colors.black
+	elif poam_ongoing_risk_area["risk"] == "Low":
+		ongoing_risk_color = colors.yellow
+		ongoing_risk_text_color = colors.black
+	poam_ongoing_risk_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("BACKGROUND", (1, 4), (1, 4), ongoing_risk_color),
+				("TEXTCOLOR", (1, 4), (1, 4), ongoing_risk_text_color),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
+	poam_ongoing_residual_risk_area = report_data["poam_ongoing_residual_risk_area"]
+	poam_ongoing_residual_risk_table = Table(
+		[
+			["Metric", "Value"],
+			["Ongoing Items", poam_ongoing_residual_risk_area["ongoing_count"]],
+			["Very High Resulting Residual Risk Mitigation Items", poam_ongoing_residual_risk_area["very_high_count"]],
+			["Very High Percentage of Ongoing Items", poam_ongoing_residual_risk_area["very_high_percent"]],
+			["Risk", poam_ongoing_residual_risk_area["risk"]],
+		],
+		hAlign="LEFT",
+		colWidths=[330, 120],
+	)
+	ongoing_residual_risk_color = colors.red
+	ongoing_residual_risk_text_color = colors.white
+	if poam_ongoing_residual_risk_area["risk"] == "Moderate":
+		ongoing_residual_risk_color = colors.orange
+		ongoing_residual_risk_text_color = colors.black
+	elif poam_ongoing_residual_risk_area["risk"] == "Low":
+		ongoing_residual_risk_color = colors.yellow
+		ongoing_residual_risk_text_color = colors.black
+	poam_ongoing_residual_risk_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("BACKGROUND", (1, 4), (1, 4), ongoing_residual_risk_color),
+				("TEXTCOLOR", (1, 4), (1, 4), ongoing_residual_risk_text_color),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
+	poam_office_organization_ongoing_risk_area = report_data["poam_office_organization_ongoing_risk_area"]
+	poam_office_organization_ongoing_risk_table = Table(
+		[
+			["Metric", "Value"],
+			["Ongoing Items", poam_office_organization_ongoing_risk_area["ongoing_count"]],
+			["Empty Office Organization Items", poam_office_organization_ongoing_risk_area["empty_count"]],
+			["Empty Percentage of Ongoing Items", poam_office_organization_ongoing_risk_area["empty_percent"]],
+			["Risk", poam_office_organization_ongoing_risk_area["risk"]],
+		],
+		hAlign="LEFT",
+		colWidths=[300, 140],
+	)
+	office_organization_risk_color = colors.red
+	office_organization_risk_text_color = colors.white
+	if poam_office_organization_ongoing_risk_area["risk"] == "Moderate":
+		office_organization_risk_color = colors.orange
+		office_organization_risk_text_color = colors.black
+	elif poam_office_organization_ongoing_risk_area["risk"] == "Low":
+		office_organization_risk_color = colors.yellow
+		office_organization_risk_text_color = colors.black
+	poam_office_organization_ongoing_risk_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("BACKGROUND", (1, 4), (1, 4), office_organization_risk_color),
+				("TEXTCOLOR", (1, 4), (1, 4), office_organization_risk_text_color),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
+	poam_false_positives_risk_area = report_data["poam_false_positives_risk_area"]
+	poam_false_positives_risk_table = Table(
+		[
+			["Metric", "Value"],
+			["Completed Items", poam_false_positives_risk_area["completed_count"]],
+			["False Positive Completed Items", poam_false_positives_risk_area["false_positive_count"]],
+			["False Positive Percentage of Completed Items", poam_false_positives_risk_area["false_positive_percent"]],
+			["Risk", poam_false_positives_risk_area["risk"]],
+		],
+		hAlign="LEFT",
+		colWidths=[320, 130],
+	)
+	false_positives_risk_color = colors.red
+	false_positives_risk_text_color = colors.white
+	if poam_false_positives_risk_area["risk"] == "Moderate":
+		false_positives_risk_color = colors.orange
+		false_positives_risk_text_color = colors.black
+	elif poam_false_positives_risk_area["risk"] == "Low":
+		false_positives_risk_color = colors.yellow
+		false_positives_risk_text_color = colors.black
+	poam_false_positives_risk_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("BACKGROUND", (1, 4), (1, 4), false_positives_risk_color),
+				("TEXTCOLOR", (1, 4), (1, 4), false_positives_risk_text_color),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
 				("ALIGN", (0, 0), (-1, 0), "CENTER"),
 				("ALIGN", (1, 1), (1, -1), "RIGHT"),
 				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -359,6 +823,66 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		story.append(Image(patch_vulnerability_risk_histogram_image, width=500, height=220))
 	else:
 		story.append(Paragraph("Patch Vulnerability Risk 2D Histogram unavailable. Install matplotlib to render it.", styles["Normal"]))
+	story.extend(
+		[
+		PageBreak(),
+		Paragraph("POAM Risk Area", styles["Heading1"]),
+		Spacer(1, 8),
+		Paragraph("POAM Items", styles["Heading2"]),
+		Spacer(1, 12),
+		poam_risk_table,
+		]
+	)
+	story.extend(
+		[
+		PageBreak(),
+		Paragraph("POAM Risk Area", styles["Heading1"]),
+		Spacer(1, 8),
+		Paragraph("Residual Risk", styles["Heading2"]),
+		Spacer(1, 12),
+		poam_residual_risk_table,
+		]
+	)
+	story.extend(
+		[
+		PageBreak(),
+		Paragraph("POAM Risk Area", styles["Heading1"]),
+		Spacer(1, 8),
+		Paragraph("Ongoing Risk", styles["Heading2"]),
+		Spacer(1, 12),
+		poam_ongoing_risk_table,
+		]
+	)
+	story.extend(
+		[
+		PageBreak(),
+		Paragraph("POAM Risk Area", styles["Heading1"]),
+		Spacer(1, 8),
+		Paragraph("Ongoing Residual Risk", styles["Heading2"]),
+		Spacer(1, 12),
+		poam_ongoing_residual_risk_table,
+		]
+	)
+	story.extend(
+		[
+		PageBreak(),
+		Paragraph("POAM Risk Area", styles["Heading1"]),
+		Spacer(1, 8),
+		Paragraph("Office Organization Ongoing Risk", styles["Heading2"]),
+		Spacer(1, 12),
+		poam_office_organization_ongoing_risk_table,
+		]
+	)
+	story.extend(
+		[
+		PageBreak(),
+		Paragraph("POAM Risk Area", styles["Heading1"]),
+		Spacer(1, 8),
+		Paragraph("False Positives Risk", styles["Heading2"]),
+		Spacer(1, 12),
+		poam_false_positives_risk_table,
+		]
+	)
 	document.build(story)
 	return True
 
@@ -398,6 +922,69 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	for row in report_data["patch_vulnerability_risk_rows"]:
 		patch_vulnerability_risk_lines.append(f"{row['risk']:<8}  {row['open']:>4}")
 	patch_vulnerability_risk_lines.extend(["", "Patch Vulnerability Risk 2D Histogram unavailable in fallback PDF output."])
+	poam_risk_area = report_data["poam_risk_area"]
+	poam_risk_lines = [
+		"POAM Risk Area",
+		"POAM Items",
+		"",
+		f"Total POAM Records: {poam_risk_area['total_count']}",
+		f"Scheduled Completion Dates: {poam_risk_area['scheduled_count']}",
+		f"Not Past Due Scheduled Completion Dates: {poam_risk_area['not_past_due_count']}",
+		f"Past Due Scheduled Completion Dates: {poam_risk_area['past_due_count']}",
+	]
+	poam_residual_risk_area = report_data["poam_residual_risk_area"]
+	poam_residual_risk_lines = [
+		"POAM Risk Area",
+		"Residual Risk",
+		"",
+		f"Total POAM Records: {poam_residual_risk_area['total_count']}",
+		f"High Empty Resulting Residual Risk Mitigation Fields: {poam_residual_risk_area['high_empty_count']}",
+		f"Moderate Empty Resulting Residual Risk Mitigation Fields: {poam_residual_risk_area['moderate_empty_count']}",
+		f"Low Empty Resulting Residual Risk Mitigation Fields: {poam_residual_risk_area['low_empty_count']}",
+		f"Empty Resulting Residual Risk Mitigation Fields: {poam_residual_risk_area['empty_count']}",
+		f"Empty Percentage: {poam_residual_risk_area['empty_percent']}",
+		f"Risk: {poam_residual_risk_area['risk']}",
+	]
+	poam_ongoing_risk_area = report_data["poam_ongoing_risk_area"]
+	poam_ongoing_risk_lines = [
+		"POAM Risk Area",
+		"Ongoing Risk",
+		"",
+		f"Ongoing Items: {poam_ongoing_risk_area['ongoing_count']}",
+		f"Accepted Items: {poam_ongoing_risk_area['accepted_count']}",
+		f"Accepted Percentage of Ongoing Items: {poam_ongoing_risk_area['accepted_percent']}",
+		f"Risk: {poam_ongoing_risk_area['risk']}",
+	]
+	poam_ongoing_residual_risk_area = report_data["poam_ongoing_residual_risk_area"]
+	poam_ongoing_residual_risk_lines = [
+		"POAM Risk Area",
+		"Ongoing Residual Risk",
+		"",
+		f"Ongoing Items: {poam_ongoing_residual_risk_area['ongoing_count']}",
+		f"Very High Resulting Residual Risk Mitigation Items: {poam_ongoing_residual_risk_area['very_high_count']}",
+		f"Very High Percentage of Ongoing Items: {poam_ongoing_residual_risk_area['very_high_percent']}",
+		f"Risk: {poam_ongoing_residual_risk_area['risk']}",
+	]
+	poam_office_organization_ongoing_risk_area = report_data["poam_office_organization_ongoing_risk_area"]
+	poam_office_organization_ongoing_risk_lines = [
+		"POAM Risk Area",
+		"Office Organization Ongoing Risk",
+		"",
+		f"Ongoing Items: {poam_office_organization_ongoing_risk_area['ongoing_count']}",
+		f"Empty Office Organization Items: {poam_office_organization_ongoing_risk_area['empty_count']}",
+		f"Empty Percentage of Ongoing Items: {poam_office_organization_ongoing_risk_area['empty_percent']}",
+		f"Risk: {poam_office_organization_ongoing_risk_area['risk']}",
+	]
+	poam_false_positives_risk_area = report_data["poam_false_positives_risk_area"]
+	poam_false_positives_risk_lines = [
+		"POAM Risk Area",
+		"False Positives Risk",
+		"",
+		f"Completed Items: {poam_false_positives_risk_area['completed_count']}",
+		f"False Positive Completed Items: {poam_false_positives_risk_area['false_positive_count']}",
+		f"False Positive Percentage of Completed Items: {poam_false_positives_risk_area['false_positive_percent']}",
+		f"Risk: {poam_false_positives_risk_area['risk']}",
+	]
 	page_streams = [
 		make_text_page(
 			[
@@ -415,6 +1002,12 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		),
 		make_text_page(cat_status_lines),
 		make_text_page(patch_vulnerability_risk_lines),
+		make_text_page(poam_risk_lines),
+		make_text_page(poam_residual_risk_lines),
+		make_text_page(poam_ongoing_risk_lines),
+		make_text_page(poam_ongoing_residual_risk_lines),
+		make_text_page(poam_office_organization_ongoing_risk_lines),
+		make_text_page(poam_false_positives_risk_lines),
 	]
 	objects = [
 		b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -468,7 +1061,8 @@ def main() -> None:
 	system_key = sys.argv[4]
 	options = parse_optional_arguments(sys.argv[5:])
 	system_package = parse_json_value_from_output(call_system_package_json_script(sys.argv[1:5]))
-	report_data = build_report_data(system_key, options, system_package)
+	poam_data = parse_json_value_from_output(call_poam_json_script([*sys.argv[1:5], "grouped=false"]))
+	report_data = build_report_data(system_key, options, system_package, poam_data)
 	output_filename = f"OpenRMFPro-Risk-Profiler-{safe_filename_value(report_data['system_key'])}.pdf"
 	output_path = Path(output_filename)
 	pdf_writer = write_pdf(output_path, report_data)
