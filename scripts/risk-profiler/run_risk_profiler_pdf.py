@@ -17,6 +17,8 @@ REQUIRED_ARGUMENT_COUNT = 5
 REPORT_TITLE = "OpenRMF Professional Risk Profiler"
 SYSTEM_PACKAGE_SCRIPT_NAME = "get_systempackage_by_systemkey_json.py"
 POAM_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
+COMPLIANCE_SCRIPT_NAME = "get_systempackage_by_systemkey_compliance_json.py"
+COMPLIANCE_ALLCONTROLS_SCRIPT_NAME = "get_systempackage_by_systemkey_compliance_by_complianceid_allcontrolscore_json.py"
 STATUS_COLUMNS = ["Open", "Not a Finding", "Not Applicable", "Not Reviewed"]
 
 
@@ -65,6 +67,10 @@ def call_poam_json_script(arguments: list[str]) -> str:
 	return result.stdout
 
 
+def call_child_script_result(source_script: Path, arguments: list[str]) -> subprocess.CompletedProcess[str]:
+	return subprocess.run([get_project_python_executable(), str(source_script), *arguments], capture_output=True, text=True)
+
+
 def parse_json_value_from_output(output: str):
 	decoder = json.JSONDecoder()
 	for index, character in enumerate(output):
@@ -78,6 +84,19 @@ def parse_json_value_from_output(output: str):
 	print("ERROR: Could not find JSON in the system package JSON script output.")
 	print(output)
 	sys.exit(1)
+
+
+def parse_json_value_from_output_or_none(output: str):
+	decoder = json.JSONDecoder()
+	for index, character in enumerate(output):
+		if character not in "[{":
+			continue
+		try:
+			parsed, _ = decoder.raw_decode(output[index:])
+			return parsed
+		except json.JSONDecodeError:
+			continue
+	return None
 
 
 def parse_optional_arguments(arguments: list[str]) -> dict[str, str]:
@@ -148,6 +167,19 @@ def first_value(record: dict, keys: list[str]) -> str:
 	return ""
 
 
+def first_nested_value(record: dict, paths: list[list[str]]) -> str:
+	for path in paths:
+		current_value = record
+		for key in path:
+			if not isinstance(current_value, dict) or key not in current_value:
+				current_value = None
+				break
+			current_value = current_value[key]
+		if current_value not in (None, ""):
+			return safe_text(current_value)
+	return ""
+
+
 def looks_like_poam_record(value: dict) -> bool:
 	poam_keys = {
 		"poamItemId",
@@ -179,6 +211,51 @@ def find_record_list(data, candidate_keys: list[str]) -> list[dict]:
 		if isinstance(value, list) and all(isinstance(record, dict) for record in value):
 			return value
 	return []
+
+
+def compliance_records(compliance_data) -> list[dict]:
+	return find_record_list(compliance_data, ["records", "items", "data", "results", "compliance", "compliances"])
+
+
+def control_score_records(control_score_data) -> list[dict]:
+	return find_record_list(control_score_data, ["records", "items", "data", "results", "controls", "allControls", "controlScores"])
+
+
+def extract_compliance_id(compliance_data) -> str:
+	if isinstance(compliance_data, dict):
+		direct = first_value(compliance_data, ["internalIdString", "complianceId", "complianceID", "systemComplianceId", "id"])
+		if direct:
+			return direct
+		nested = first_nested_value(
+			compliance_data,
+			[
+				["compliance", "internalIdString"],
+				["compliance", "complianceId"],
+				["compliance", "id"],
+				["data", "internalIdString"],
+				["data", "complianceId"],
+				["data", "id"],
+			],
+		)
+		if nested:
+			return nested
+	for record in compliance_records(compliance_data):
+		compliance_id = first_value(record, ["internalIdString", "complianceId", "complianceID", "systemComplianceId", "id"])
+		if compliance_id:
+			return compliance_id
+	return ""
+
+
+def percentage_value(record: dict, keys: list[str]) -> float | None:
+	value = first_value(record, keys)
+	if not value:
+		value = first_nested_value(record, [["score", key] for key in keys])
+	if not value:
+		return None
+	try:
+		return float(str(value).strip().rstrip("%"))
+	except (TypeError, ValueError):
+		return None
 
 
 def poam_records(poam_data) -> list[dict]:
@@ -376,6 +453,109 @@ def build_poam_false_positives_risk_area(poam_data) -> dict[str, str]:
 	}
 
 
+def build_compliance_risk_area(arguments: list[str]) -> dict[str, str]:
+	compliance_script = Path(__file__).resolve().parents[1] / "compliance" / COMPLIANCE_SCRIPT_NAME
+	compliance_result = call_child_script_result(compliance_script, arguments)
+	if compliance_result.returncode != 0:
+		status_match = re.search(r"HTTP\s+(\d+)", compliance_result.stdout + compliance_result.stderr)
+		return {
+			"risk": "High",
+			"status": "Not Generated",
+			"http_status": status_match.group(1) if status_match else "Not 200",
+			"data_found": "No",
+			"compliance_id": "Unavailable",
+		}
+	compliance_data = parse_json_value_from_output_or_none(compliance_result.stdout)
+	compliance_id = extract_compliance_id(compliance_data)
+	if not compliance_data or not compliance_id:
+		return {
+			"risk": "High",
+			"status": "Missing Compliance Data",
+			"http_status": "200",
+			"data_found": "No",
+			"compliance_id": "Unavailable",
+		}
+	return {
+		"risk": "Low",
+		"status": "Compliance Generated",
+		"http_status": "200",
+		"data_found": "Yes",
+		"compliance_id": compliance_id,
+	}
+
+
+def build_compliance_control_score_risk_area(arguments: list[str], compliance_risk_area: dict[str, str]) -> dict[str, str]:
+	compliance_id = compliance_risk_area.get("compliance_id", "")
+	if compliance_id in {"", "Unavailable"}:
+		return {
+			"risk": "High",
+			"status": "Skipped; Compliance ID Unavailable",
+			"record_count": "0",
+			"percentage_count": "0",
+			"both_zero_count": "0",
+			"both_zero_percent": "0.0%",
+			"average_open": "Unknown",
+			"average_complete": "Unknown",
+		}
+	allcontrols_script = Path(__file__).resolve().parents[1] / "compliance" / COMPLIANCE_ALLCONTROLS_SCRIPT_NAME
+	allcontrols_result = call_child_script_result(allcontrols_script, [*arguments, compliance_id])
+	if allcontrols_result.returncode != 0:
+		return {
+			"risk": "High",
+			"status": "Control Scores Unavailable",
+			"record_count": "0",
+			"percentage_count": "0",
+			"both_zero_count": "0",
+			"both_zero_percent": "0.0%",
+			"average_open": "Unknown",
+			"average_complete": "Unknown",
+		}
+	control_score_data = parse_json_value_from_output_or_none(allcontrols_result.stdout)
+	records = control_score_records(control_score_data)
+	percentage_pairs = []
+	for record in records:
+		percentage_open = percentage_value(record, ["percentageOpen", "percentOpen", "openPercentage"])
+		percentage_complete = percentage_value(record, ["percentageComplete", "percentComplete", "completionPercentage"])
+		if percentage_open is None or percentage_complete is None:
+			continue
+		percentage_pairs.append((percentage_open, percentage_complete))
+	if not records or not percentage_pairs:
+		return {
+			"risk": "High",
+			"status": "No Control Score Percentages Found",
+			"record_count": str(len(records)),
+			"percentage_count": str(len(percentage_pairs)),
+			"both_zero_count": "0",
+			"both_zero_percent": "0.0%",
+			"average_open": "Unknown",
+			"average_complete": "Unknown",
+		}
+	both_zero_count = sum(1 for percentage_open, percentage_complete in percentage_pairs if percentage_open == 0 and percentage_complete == 0)
+	both_zero_percent = both_zero_count / len(percentage_pairs) * 100
+	average_open = sum(percentage_open for percentage_open, _ in percentage_pairs) / len(percentage_pairs)
+	average_complete = sum(percentage_complete for _, percentage_complete in percentage_pairs) / len(percentage_pairs)
+	if both_zero_count > (len(percentage_pairs) / 2):
+		risk = "High"
+	elif average_open > average_complete:
+		risk = "High"
+	elif average_complete < 50:
+		risk = "High"
+	elif average_complete < 75:
+		risk = "Moderate"
+	else:
+		risk = "Low"
+	return {
+		"risk": risk,
+		"status": "Control Scores Evaluated",
+		"record_count": str(len(records)),
+		"percentage_count": str(len(percentage_pairs)),
+		"both_zero_count": str(both_zero_count),
+		"both_zero_percent": f"{both_zero_percent:.1f}%",
+		"average_open": f"{average_open:.1f}%",
+		"average_complete": f"{average_complete:.1f}%",
+	}
+
+
 def build_cat_status_rows(system_package: dict) -> list[dict[str, str]]:
 	score = system_package.get("score", {}) if isinstance(system_package, dict) else {}
 	if not isinstance(score, dict):
@@ -424,7 +604,7 @@ def build_patch_vulnerability_risk_rows(system_package: dict) -> list[dict[str, 
 	]
 
 
-def build_report_data(system_key: str, options: dict[str, str], system_package: dict, poam_data) -> dict[str, str]:
+def build_report_data(system_key: str, options: dict[str, str], system_package: dict, poam_data, compliance_risk_area: dict[str, str], compliance_control_score_risk_area: dict[str, str]) -> dict[str, str]:
 	return {
 		"system_key": system_key,
 		"framework_title": framework_value(system_package, options, {"frameworkTitle", "frameworktitle", "framework_title"}, "frameworkTitle", "frameworktitle", "framework_title"),
@@ -437,6 +617,8 @@ def build_report_data(system_key: str, options: dict[str, str], system_package: 
 		"poam_ongoing_residual_risk_area": build_poam_ongoing_residual_risk_area(poam_data),
 		"poam_office_organization_ongoing_risk_area": build_poam_office_organization_ongoing_risk_area(poam_data),
 		"poam_false_positives_risk_area": build_poam_false_positives_risk_area(poam_data),
+		"compliance_risk_area": compliance_risk_area,
+		"compliance_control_score_risk_area": compliance_control_score_risk_area,
 		"generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
 		"source_script": Path(__file__).name,
 	}
@@ -712,6 +894,75 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
+	compliance_risk_area = report_data["compliance_risk_area"]
+	compliance_risk_table = Table(
+		[
+			["Metric", "Value"],
+			["Status", compliance_risk_area["status"]],
+			["HTTP Status", compliance_risk_area["http_status"]],
+			["Compliance Data Found", compliance_risk_area["data_found"]],
+			["Compliance ID", compliance_risk_area["compliance_id"]],
+			["Risk", compliance_risk_area["risk"]],
+		],
+		hAlign="LEFT",
+		colWidths=[250, 240],
+	)
+	compliance_risk_color = colors.red if compliance_risk_area["risk"] == "High" else colors.yellow
+	compliance_risk_text_color = colors.white if compliance_risk_area["risk"] == "High" else colors.black
+	compliance_risk_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("BACKGROUND", (1, 5), (1, 5), compliance_risk_color),
+				("TEXTCOLOR", (1, 5), (1, 5), compliance_risk_text_color),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
+	compliance_control_score_risk_area = report_data["compliance_control_score_risk_area"]
+	compliance_control_score_risk_table = Table(
+		[
+			["Metric", "Value"],
+			["Status", compliance_control_score_risk_area["status"]],
+			["Control Score Records", compliance_control_score_risk_area["record_count"]],
+			["Records with Percentages", compliance_control_score_risk_area["percentage_count"]],
+			["Both 0% Records", compliance_control_score_risk_area["both_zero_count"]],
+			["Both 0% Percentage", compliance_control_score_risk_area["both_zero_percent"]],
+			["Average percentageOpen", compliance_control_score_risk_area["average_open"]],
+			["Average percentageComplete", compliance_control_score_risk_area["average_complete"]],
+			["Risk", compliance_control_score_risk_area["risk"]],
+		],
+		hAlign="LEFT",
+		colWidths=[260, 180],
+	)
+	compliance_control_score_risk_color = colors.red
+	compliance_control_score_risk_text_color = colors.white
+	if compliance_control_score_risk_area["risk"] == "Moderate":
+		compliance_control_score_risk_color = colors.orange
+		compliance_control_score_risk_text_color = colors.black
+	elif compliance_control_score_risk_area["risk"] == "Low":
+		compliance_control_score_risk_color = colors.yellow
+		compliance_control_score_risk_text_color = colors.black
+	compliance_control_score_risk_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("BACKGROUND", (1, 8), (1, 8), compliance_control_score_risk_color),
+				("TEXTCOLOR", (1, 8), (1, 8), compliance_control_score_risk_text_color),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
 
 	def build_2d_histogram(rows: list[dict[str, str]], row_label_key: str, columns: list[tuple[str, str]], title: str, x_label: str) -> BytesIO | None:
 		try:
@@ -883,6 +1134,24 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		poam_false_positives_risk_table,
 		]
 	)
+	story.extend(
+		[
+		PageBreak(),
+		Paragraph("Compliance", styles["Heading1"]),
+		Spacer(1, 12),
+		compliance_risk_table,
+		]
+	)
+	story.extend(
+		[
+		PageBreak(),
+		Paragraph("Compliance", styles["Heading1"]),
+		Spacer(1, 8),
+		Paragraph("Compliance Control Score", styles["Heading2"]),
+		Spacer(1, 12),
+		compliance_control_score_risk_table,
+		]
+	)
 	document.build(story)
 	return True
 
@@ -985,6 +1254,30 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		f"False Positive Percentage of Completed Items: {poam_false_positives_risk_area['false_positive_percent']}",
 		f"Risk: {poam_false_positives_risk_area['risk']}",
 	]
+	compliance_risk_area = report_data["compliance_risk_area"]
+	compliance_risk_lines = [
+		"Compliance",
+		"",
+		f"Status: {compliance_risk_area['status']}",
+		f"HTTP Status: {compliance_risk_area['http_status']}",
+		f"Compliance Data Found: {compliance_risk_area['data_found']}",
+		f"Compliance ID: {compliance_risk_area['compliance_id']}",
+		f"Risk: {compliance_risk_area['risk']}",
+	]
+	compliance_control_score_risk_area = report_data["compliance_control_score_risk_area"]
+	compliance_control_score_risk_lines = [
+		"Compliance",
+		"Compliance Control Score",
+		"",
+		f"Status: {compliance_control_score_risk_area['status']}",
+		f"Control Score Records: {compliance_control_score_risk_area['record_count']}",
+		f"Records with Percentages: {compliance_control_score_risk_area['percentage_count']}",
+		f"Both 0% Records: {compliance_control_score_risk_area['both_zero_count']}",
+		f"Both 0% Percentage: {compliance_control_score_risk_area['both_zero_percent']}",
+		f"Average percentageOpen: {compliance_control_score_risk_area['average_open']}",
+		f"Average percentageComplete: {compliance_control_score_risk_area['average_complete']}",
+		f"Risk: {compliance_control_score_risk_area['risk']}",
+	]
 	page_streams = [
 		make_text_page(
 			[
@@ -1008,6 +1301,8 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		make_text_page(poam_ongoing_residual_risk_lines),
 		make_text_page(poam_office_organization_ongoing_risk_lines),
 		make_text_page(poam_false_positives_risk_lines),
+		make_text_page(compliance_risk_lines),
+		make_text_page(compliance_control_score_risk_lines),
 	]
 	objects = [
 		b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -1062,7 +1357,9 @@ def main() -> None:
 	options = parse_optional_arguments(sys.argv[5:])
 	system_package = parse_json_value_from_output(call_system_package_json_script(sys.argv[1:5]))
 	poam_data = parse_json_value_from_output(call_poam_json_script([*sys.argv[1:5], "grouped=false"]))
-	report_data = build_report_data(system_key, options, system_package, poam_data)
+	compliance_risk_area = build_compliance_risk_area(sys.argv[1:5])
+	compliance_control_score_risk_area = build_compliance_control_score_risk_area(sys.argv[1:5], compliance_risk_area)
+	report_data = build_report_data(system_key, options, system_package, poam_data, compliance_risk_area, compliance_control_score_risk_area)
 	output_filename = f"OpenRMFPro-Risk-Profiler-{safe_filename_value(report_data['system_key'])}.pdf"
 	output_path = Path(output_filename)
 	pdf_writer = write_pdf(output_path, report_data)
