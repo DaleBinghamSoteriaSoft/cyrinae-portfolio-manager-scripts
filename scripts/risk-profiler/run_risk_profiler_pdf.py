@@ -17,8 +17,12 @@ REQUIRED_ARGUMENT_COUNT = 5
 REPORT_TITLE = "OpenRMF Professional Risk Profiler"
 SYSTEM_PACKAGE_SCRIPT_NAME = "get_systempackage_by_systemkey_json.py"
 POAM_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
+CHECKLIST_MISSINGDATA_SCRIPT_NAME = "get_systempackage_by_systemkey_missingdata_json.py"
 COMPLIANCE_SCRIPT_NAME = "get_systempackage_by_systemkey_compliance_json.py"
 COMPLIANCE_ALLCONTROLS_SCRIPT_NAME = "get_systempackage_by_systemkey_compliance_by_complianceid_allcontrolscore_json.py"
+PPSM_SCRIPT_NAME = "get_systempackage_by_systemkey_ppsm_json.py"
+APPROVED_PPS_SCRIPT_NAME = "get_systempackage_by_systemkey_approvedpps_json.py"
+GENERAL_APPROVED_PPS_SCRIPT_NAME = "get_approvedpps_json.py"
 STATUS_COLUMNS = ["Open", "Not a Finding", "Not Applicable", "Not Reviewed"]
 
 
@@ -286,6 +290,28 @@ def bool_value(value) -> bool:
 	return safe_text(value).strip().lower() in {"true", "yes", "y", "1"}
 
 
+def ppsm_records(ppsm_data) -> list[dict]:
+	return find_record_list(ppsm_data, ["records", "items", "data", "results", "ppsm", "portsProtocolsServices"])
+
+
+def ppsm_boundary_value(record: dict, boundary_number: int, direction: str) -> bool:
+	direction_lower = direction.lower()
+	direction_title = direction.title()
+	for key in [
+		f"boundary{boundary_number}{direction_title}",
+		f"boundary{boundary_number}{direction_lower}",
+		f"boundary{boundary_number}_{direction_lower}",
+		f"boundary_{boundary_number}_{direction_lower}",
+		f"boundary{boundary_number}{direction_title}Field",
+		f"boundary{boundary_number}_{direction_lower}_field",
+		f"boundary{boundary_number}{direction_title}Value",
+		f"boundary{boundary_number}_{direction_lower}_value",
+	]:
+		if key in record:
+			return bool_value(record.get(key))
+	return False
+
+
 def is_very_high_risk_value(value: str) -> bool:
 	return safe_text(value).strip().lower().replace("_", " ").replace("-", " ") in {"very high", "veryhigh", "critical"}
 
@@ -325,7 +351,7 @@ def parse_date_value(value):
 
 
 def build_poam_risk_area(poam_data) -> dict[str, str]:
-	records = poam_records(poam_data)
+	records = [record for record in poam_records(poam_data) if poam_status(record) == "Ongoing"]
 	today = datetime.now().astimezone().date()
 	scheduled_count = 0
 	past_due_count = 0
@@ -417,9 +443,9 @@ def build_poam_office_organization_ongoing_risk_area(poam_data) -> dict[str, str
 	ongoing_count = len(ongoing_records)
 	empty_count = sum(1 for record in ongoing_records if is_empty_value(office_organization_value(record)))
 	empty_percent = (empty_count / ongoing_count * 100) if ongoing_count else 0
-	if ongoing_count and empty_count == ongoing_count:
+	if empty_percent > 50:
 		risk = "High"
-	elif empty_percent > 50:
+	elif empty_percent > 25 and empty_percent < 50:
 		risk = "Moderate"
 	elif empty_percent > 25:
 		risk = "Low"
@@ -556,6 +582,168 @@ def build_compliance_control_score_risk_area(arguments: list[str], compliance_ri
 	}
 
 
+def load_ppsm_data(arguments: list[str]):
+	ppsm_script = Path(__file__).resolve().parents[1] / "ports-protocols-services" / PPSM_SCRIPT_NAME
+	ppsm_result = call_child_script_result(ppsm_script, arguments)
+	if ppsm_result.returncode != 0:
+		return None
+	return parse_json_value_from_output_or_none(ppsm_result.stdout)
+
+
+def load_approved_pps_listing(arguments: list[str]) -> dict:
+	approved_pps_script = Path(__file__).resolve().parents[1] / "ports-protocols-services" / APPROVED_PPS_SCRIPT_NAME
+	approved_pps_result = call_child_script_result(approved_pps_script, arguments)
+	if approved_pps_result.returncode != 0:
+		status_match = re.search(r"HTTP\s+(\d+)", approved_pps_result.stdout + approved_pps_result.stderr)
+		return {
+			"api_status": status_match.group(1) if status_match else "Not 200",
+			"data": None,
+			"source": "System Package Approved PPS",
+		}
+	approved_pps_data = parse_json_value_from_output_or_none(approved_pps_result.stdout)
+	if approved_pps_items(approved_pps_data):
+		return {
+			"api_status": "200 OK",
+			"data": approved_pps_data,
+			"source": "System Package Approved PPS",
+		}
+
+	general_approved_pps_script = Path(__file__).resolve().parents[1] / "ports-protocols-services" / GENERAL_APPROVED_PPS_SCRIPT_NAME
+	general_approved_pps_result = call_child_script_result(general_approved_pps_script, arguments[:3])
+	if general_approved_pps_result.returncode != 0:
+		status_match = re.search(r"HTTP\s+(\d+)", general_approved_pps_result.stdout + general_approved_pps_result.stderr)
+		return {
+			"api_status": status_match.group(1) if status_match else "Not 200",
+			"data": None,
+			"source": "General Approved PPS Fallback",
+		}
+	return {
+		"api_status": "200 OK",
+		"data": parse_json_value_from_output_or_none(general_approved_pps_result.stdout),
+		"source": "General Approved PPS Fallback",
+	}
+
+
+def approved_pps_items(approved_pps_data) -> list:
+	if isinstance(approved_pps_data, list):
+		return approved_pps_data
+	if not isinstance(approved_pps_data, dict):
+		return []
+	for key in ["records", "items", "data", "results", "approvedPps", "approvedPPS", "approvedpps", "pps"]:
+		value = approved_pps_data.get(key)
+		if isinstance(value, list):
+			return value
+	return [approved_pps_data] if approved_pps_data else []
+
+
+def build_pps_listing_risk_area(approved_pps_listing: dict | None) -> dict[str, str]:
+	if not isinstance(approved_pps_listing, dict):
+		return {
+			"risk": "High",
+			"status": "Approved PPS Unavailable",
+			"http_status": "Not 200",
+			"approved_count": "0",
+			"source": "Unavailable",
+		}
+	api_status = safe_text(approved_pps_listing.get("api_status")) or "Not 200"
+	source = safe_text(approved_pps_listing.get("source")) or "Unknown"
+	approved_pps_data = approved_pps_listing.get("data")
+	if api_status != "200 OK":
+		return {
+			"risk": "High",
+			"status": "Approved PPS API Failed",
+			"http_status": api_status,
+			"approved_count": "0",
+			"source": source,
+		}
+	items = approved_pps_items(approved_pps_data)
+	if not items:
+		return {
+			"risk": "High",
+			"status": "No Approved PPS Returned",
+			"http_status": api_status,
+			"approved_count": "0",
+			"source": source,
+		}
+	return {
+		"risk": "Low",
+		"status": "Approved PPS Returned",
+		"http_status": api_status,
+		"approved_count": str(len(items)),
+		"source": source,
+	}
+
+
+def load_checklist_missing_data(arguments: list[str]):
+	missingdata_script = Path(__file__).resolve().parents[1] / "checklist" / CHECKLIST_MISSINGDATA_SCRIPT_NAME
+	missingdata_result = call_child_script_result(missingdata_script, arguments)
+	if missingdata_result.returncode != 0:
+		return None
+	return parse_json_value_from_output_or_none(missingdata_result.stdout)
+
+
+def checklist_missing_data_items(missingdata) -> list:
+	if isinstance(missingdata, list):
+		return missingdata
+	if not isinstance(missingdata, dict):
+		return []
+	for key in ["records", "items", "data", "results", "missingData", "missingdata"]:
+		value = missingdata.get(key)
+		if isinstance(value, list):
+			return value
+	return [missingdata] if missingdata else []
+
+
+def build_checklist_missing_data_risk_area(missingdata) -> dict[str, str]:
+	if missingdata is None:
+		return {
+			"risk": "High",
+			"status": "Missing Data Unavailable",
+			"returned_count": "0",
+		}
+	items = checklist_missing_data_items(missingdata)
+	risk = "High" if items else "Low"
+	status = "Missing Data Returned" if items else "Empty Array Returned"
+	return {
+		"risk": risk,
+		"status": status,
+		"returned_count": str(len(items)),
+	}
+
+
+def build_pps_boundries_risk_area(ppsm_data) -> dict[str, str]:
+	records = ppsm_records(ppsm_data)
+	in_crossings = 0
+	out_crossings = 0
+	boundary_record_count = 0
+	for record in records:
+		record_has_boundary = False
+		for boundary_number in range(1, 9):
+			if ppsm_boundary_value(record, boundary_number, "In"):
+				in_crossings += 1
+				record_has_boundary = True
+			if ppsm_boundary_value(record, boundary_number, "Out"):
+				out_crossings += 1
+				record_has_boundary = True
+		if record_has_boundary:
+			boundary_record_count += 1
+	total_crossings = in_crossings + out_crossings
+	if total_crossings == 0:
+		risk = "Low"
+	elif total_crossings > 10:
+		risk = "High"
+	else:
+		risk = "Medium"
+	return {
+		"risk": risk,
+		"record_count": str(len(records)),
+		"boundary_record_count": str(boundary_record_count),
+		"in_crossings": str(in_crossings),
+		"out_crossings": str(out_crossings),
+		"total_crossings": str(total_crossings),
+	}
+
+
 def build_cat_status_rows(system_package: dict) -> list[dict[str, str]]:
 	score = system_package.get("score", {}) if isinstance(system_package, dict) else {}
 	if not isinstance(score, dict):
@@ -604,12 +792,13 @@ def build_patch_vulnerability_risk_rows(system_package: dict) -> list[dict[str, 
 	]
 
 
-def build_report_data(system_key: str, options: dict[str, str], system_package: dict, poam_data, compliance_risk_area: dict[str, str], compliance_control_score_risk_area: dict[str, str]) -> dict[str, str]:
+def build_report_data(system_key: str, options: dict[str, str], system_package: dict, poam_data, compliance_risk_area: dict[str, str], compliance_control_score_risk_area: dict[str, str], ppsm_data=None, checklist_missing_data=None, approved_pps_listing=None) -> dict[str, str]:
 	return {
 		"system_key": system_key,
 		"framework_title": framework_value(system_package, options, {"frameworkTitle", "frameworktitle", "framework_title"}, "frameworkTitle", "frameworktitle", "framework_title"),
 		"framework_version": framework_value(system_package, options, {"frameworkVersion", "frameworkversion", "framework_version"}, "frameworkVersion", "frameworkversion", "framework_version"),
 		"cat_status_rows": build_cat_status_rows(system_package),
+		"checklist_missing_data_risk_area": build_checklist_missing_data_risk_area(checklist_missing_data),
 		"patch_vulnerability_risk_rows": build_patch_vulnerability_risk_rows(system_package),
 		"poam_risk_area": build_poam_risk_area(poam_data),
 		"poam_residual_risk_area": build_poam_residual_risk_area(poam_data),
@@ -619,6 +808,8 @@ def build_report_data(system_key: str, options: dict[str, str], system_package: 
 		"poam_false_positives_risk_area": build_poam_false_positives_risk_area(poam_data),
 		"compliance_risk_area": compliance_risk_area,
 		"compliance_control_score_risk_area": compliance_control_score_risk_area,
+		"pps_boundries_risk_area": build_pps_boundries_risk_area(ppsm_data),
+		"pps_listing_risk_area": build_pps_listing_risk_area(approved_pps_listing),
 		"generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
 		"source_script": Path(__file__).name,
 	}
@@ -637,6 +828,10 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	table_header_style = styles["BodyText"].clone("CenteredTableHeader")
 	table_header_style.alignment = 1
 	table_header_style.fontName = "Helvetica-Bold"
+	subheading_style = styles["BodyText"].clone("RiskProfilerSubheading")
+	subheading_style.fontName = "Helvetica-Bold"
+	subheading_style.fontSize = 10
+	subheading_style.leading = 12
 	cat_status_table = Table(
 		[
 			["CAT", *[Paragraph(status, table_header_style) for status in STATUS_COLUMNS]],
@@ -663,6 +858,37 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
 				("ALIGN", (0, 0), (-1, 0), "CENTER"),
 				("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
+	checklist_missing_data_risk_area = report_data["checklist_missing_data_risk_area"]
+	checklist_missing_data_risk_table = Table(
+		[
+			["Metric", "Value"],
+			["Status", checklist_missing_data_risk_area["status"]],
+			["Returned Missing Data Items", checklist_missing_data_risk_area["returned_count"]],
+			["Risk", checklist_missing_data_risk_area["risk"]],
+		],
+		hAlign="LEFT",
+		colWidths=[260, 180],
+	)
+	checklist_missing_data_risk_color = colors.red
+	checklist_missing_data_risk_text_color = colors.white
+	if checklist_missing_data_risk_area["risk"] == "Low":
+		checklist_missing_data_risk_color = colors.yellow
+		checklist_missing_data_risk_text_color = colors.black
+	checklist_missing_data_risk_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("BACKGROUND", (1, 3), (1, 3), checklist_missing_data_risk_color),
+				("TEXTCOLOR", (1, 3), (1, 3), checklist_missing_data_risk_text_color),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
 				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
 			]
 		)
@@ -696,7 +922,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	poam_risk_table = Table(
 		[
 			["Metric", "Value"],
-			["Total POAM Records", poam_risk_area["total_count"]],
+			["Ongoing POAM Records", poam_risk_area["total_count"]],
 			["Scheduled Completion Dates", poam_risk_area["scheduled_count"]],
 			["Not Past Due Scheduled Completion Dates", poam_risk_area["not_past_due_count"]],
 			["Past Due Scheduled Completion Dates", poam_risk_area["past_due_count"]],
@@ -899,7 +1125,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		[
 			["Metric", "Value"],
 			["Status", compliance_risk_area["status"]],
-			["HTTP Status", compliance_risk_area["http_status"]],
 			["Compliance Data Found", compliance_risk_area["data_found"]],
 			["Compliance ID", compliance_risk_area["compliance_id"]],
 			["Risk", compliance_risk_area["risk"]],
@@ -913,8 +1138,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		TableStyle(
 			[
 				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-				("BACKGROUND", (1, 5), (1, 5), compliance_risk_color),
-				("TEXTCOLOR", (1, 5), (1, 5), compliance_risk_text_color),
+				("BACKGROUND", (1, 4), (1, 4), compliance_risk_color),
+				("TEXTCOLOR", (1, 4), (1, 4), compliance_risk_text_color),
 				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
 				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
 				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
@@ -929,12 +1154,9 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		[
 			["Metric", "Value"],
 			["Status", compliance_control_score_risk_area["status"]],
-			["Control Score Records", compliance_control_score_risk_area["record_count"]],
-			["Records with Percentages", compliance_control_score_risk_area["percentage_count"]],
-			["Both 0% Records", compliance_control_score_risk_area["both_zero_count"]],
-			["Both 0% Percentage", compliance_control_score_risk_area["both_zero_percent"]],
-			["Average percentageOpen", compliance_control_score_risk_area["average_open"]],
-			["Average percentageComplete", compliance_control_score_risk_area["average_complete"]],
+			["Number of Controls", compliance_control_score_risk_area["record_count"]],
+			["Number of Controls with no Compliance Records", compliance_control_score_risk_area["both_zero_count"]],
+			["Percentage of Controls with no Compliance Records", compliance_control_score_risk_area["both_zero_percent"]],
 			["Risk", compliance_control_score_risk_area["risk"]],
 		],
 		hAlign="LEFT",
@@ -952,8 +1174,76 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		TableStyle(
 			[
 				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-				("BACKGROUND", (1, 8), (1, 8), compliance_control_score_risk_color),
-				("TEXTCOLOR", (1, 8), (1, 8), compliance_control_score_risk_text_color),
+				("BACKGROUND", (1, 5), (1, 5), compliance_control_score_risk_color),
+				("TEXTCOLOR", (1, 5), (1, 5), compliance_control_score_risk_text_color),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
+	pps_boundries_risk_area = report_data["pps_boundries_risk_area"]
+	pps_boundries_risk_table = Table(
+		[
+			["Metric", "Value"],
+			["PPS Records Checked", pps_boundries_risk_area["record_count"]],
+			["Records with Boundaries", pps_boundries_risk_area["boundary_record_count"]],
+			["Boundary In Crossings", pps_boundries_risk_area["in_crossings"]],
+			["Boundary Out Crossings", pps_boundries_risk_area["out_crossings"]],
+			["Total Boundary Crossings", pps_boundries_risk_area["total_crossings"]],
+			["Risk", pps_boundries_risk_area["risk"]],
+		],
+		hAlign="LEFT",
+		colWidths=[260, 180],
+	)
+	pps_boundries_risk_color = colors.red
+	pps_boundries_risk_text_color = colors.white
+	if pps_boundries_risk_area["risk"] == "Medium":
+		pps_boundries_risk_color = colors.orange
+		pps_boundries_risk_text_color = colors.black
+	elif pps_boundries_risk_area["risk"] == "Low":
+		pps_boundries_risk_color = colors.yellow
+		pps_boundries_risk_text_color = colors.black
+	pps_boundries_risk_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("BACKGROUND", (1, 6), (1, 6), pps_boundries_risk_color),
+				("TEXTCOLOR", (1, 6), (1, 6), pps_boundries_risk_text_color),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
+	pps_listing_risk_area = report_data["pps_listing_risk_area"]
+	pps_listing_risk_table = Table(
+		[
+			["Metric", "Value"],
+			["Status", pps_listing_risk_area["status"]],
+			["Approved PPS Items", pps_listing_risk_area["approved_count"]],
+			["Risk", pps_listing_risk_area["risk"]],
+		],
+		hAlign="LEFT",
+		colWidths=[260, 180],
+	)
+	pps_listing_risk_color = colors.red
+	pps_listing_risk_text_color = colors.white
+	if pps_listing_risk_area["risk"] == "Low":
+		pps_listing_risk_color = colors.yellow
+		pps_listing_risk_text_color = colors.black
+	pps_listing_risk_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("BACKGROUND", (1, 3), (1, 3), pps_listing_risk_color),
+				("TEXTCOLOR", (1, 3), (1, 3), pps_listing_risk_text_color),
 				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
 				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
 				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
@@ -1062,6 +1352,16 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
+		Paragraph("Checklist Missing Data", styles["Heading1"]),
+		Spacer(1, 8),
+		Paragraph("Any checklist vulnerabilities marked as Not a Finding or N/A but missing comments or details about why that is.", subheading_style),
+		Spacer(1, 12),
+		checklist_missing_data_risk_table,
+		]
+	)
+	story.extend(
+		[
+		PageBreak(),
 		Paragraph("Patch Vulnerability Risk", styles["Heading1"]),
 		Spacer(1, 12),
 		patch_vulnerability_risk_table,
@@ -1152,6 +1452,22 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		compliance_control_score_risk_table,
 		]
 	)
+	story.extend(
+		[
+		PageBreak(),
+		Paragraph("Ports/Protocols/Services Boundries", styles["Heading1"]),
+		Spacer(1, 12),
+		pps_boundries_risk_table,
+		]
+	)
+	story.extend(
+		[
+		PageBreak(),
+		Paragraph("Ports/Protocols/Services Lisitng", styles["Heading1"]),
+		Spacer(1, 12),
+		pps_listing_risk_table,
+		]
+	)
 	document.build(story)
 	return True
 
@@ -1182,6 +1498,15 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 			f"{row['category']:<5}  {row['open']:>4}  {row['not_a_finding']:>13}  {row['not_applicable']:>14}  {row['not_reviewed']:>12}"
 		)
 	cat_status_lines.extend(["", "Checklist Risk 2D Histogram unavailable in fallback PDF output."])
+	checklist_missing_data_risk_area = report_data["checklist_missing_data_risk_area"]
+	checklist_missing_data_risk_lines = [
+		"Checklist Missing Data",
+		"Any checklist vulnerabilities marked as Not a Finding or N/A but missing comments or details about why that is.",
+		"",
+		f"Status: {checklist_missing_data_risk_area['status']}",
+		f"Returned Missing Data Items: {checklist_missing_data_risk_area['returned_count']}",
+		f"Risk: {checklist_missing_data_risk_area['risk']}",
+	]
 	patch_vulnerability_risk_lines = [
 		"Patch Vulnerability Risk",
 		"",
@@ -1196,7 +1521,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		"POAM Risk Area",
 		"POAM Items",
 		"",
-		f"Total POAM Records: {poam_risk_area['total_count']}",
+		f"Ongoing POAM Records: {poam_risk_area['total_count']}",
 		f"Scheduled Completion Dates: {poam_risk_area['scheduled_count']}",
 		f"Not Past Due Scheduled Completion Dates: {poam_risk_area['not_past_due_count']}",
 		f"Past Due Scheduled Completion Dates: {poam_risk_area['past_due_count']}",
@@ -1259,7 +1584,6 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		"Compliance",
 		"",
 		f"Status: {compliance_risk_area['status']}",
-		f"HTTP Status: {compliance_risk_area['http_status']}",
 		f"Compliance Data Found: {compliance_risk_area['data_found']}",
 		f"Compliance ID: {compliance_risk_area['compliance_id']}",
 		f"Risk: {compliance_risk_area['risk']}",
@@ -1270,13 +1594,29 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		"Compliance Control Score",
 		"",
 		f"Status: {compliance_control_score_risk_area['status']}",
-		f"Control Score Records: {compliance_control_score_risk_area['record_count']}",
-		f"Records with Percentages: {compliance_control_score_risk_area['percentage_count']}",
-		f"Both 0% Records: {compliance_control_score_risk_area['both_zero_count']}",
-		f"Both 0% Percentage: {compliance_control_score_risk_area['both_zero_percent']}",
-		f"Average percentageOpen: {compliance_control_score_risk_area['average_open']}",
-		f"Average percentageComplete: {compliance_control_score_risk_area['average_complete']}",
+		f"Number of Controls: {compliance_control_score_risk_area['record_count']}",
+		f"Number of Controls with no Compliance Records: {compliance_control_score_risk_area['both_zero_count']}",
+		f"Percentage of Controls with no Compliance Records: {compliance_control_score_risk_area['both_zero_percent']}",
 		f"Risk: {compliance_control_score_risk_area['risk']}",
+	]
+	pps_boundries_risk_area = report_data["pps_boundries_risk_area"]
+	pps_boundries_risk_lines = [
+		"Ports/Protocols/Services Boundries",
+		"",
+		f"PPS Records Checked: {pps_boundries_risk_area['record_count']}",
+		f"Records with Boundaries: {pps_boundries_risk_area['boundary_record_count']}",
+		f"Boundary In Crossings: {pps_boundries_risk_area['in_crossings']}",
+		f"Boundary Out Crossings: {pps_boundries_risk_area['out_crossings']}",
+		f"Total Boundary Crossings: {pps_boundries_risk_area['total_crossings']}",
+		f"Risk: {pps_boundries_risk_area['risk']}",
+	]
+	pps_listing_risk_area = report_data["pps_listing_risk_area"]
+	pps_listing_risk_lines = [
+		"Ports/Protocols/Services Lisitng",
+		"",
+		f"Status: {pps_listing_risk_area['status']}",
+		f"Approved PPS Items: {pps_listing_risk_area['approved_count']}",
+		f"Risk: {pps_listing_risk_area['risk']}",
 	]
 	page_streams = [
 		make_text_page(
@@ -1294,6 +1634,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 			font_size=14,
 		),
 		make_text_page(cat_status_lines),
+		make_text_page(checklist_missing_data_risk_lines),
 		make_text_page(patch_vulnerability_risk_lines),
 		make_text_page(poam_risk_lines),
 		make_text_page(poam_residual_risk_lines),
@@ -1303,6 +1644,8 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		make_text_page(poam_false_positives_risk_lines),
 		make_text_page(compliance_risk_lines),
 		make_text_page(compliance_control_score_risk_lines),
+		make_text_page(pps_boundries_risk_lines),
+		make_text_page(pps_listing_risk_lines),
 	]
 	objects = [
 		b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -1359,7 +1702,10 @@ def main() -> None:
 	poam_data = parse_json_value_from_output(call_poam_json_script([*sys.argv[1:5], "grouped=false"]))
 	compliance_risk_area = build_compliance_risk_area(sys.argv[1:5])
 	compliance_control_score_risk_area = build_compliance_control_score_risk_area(sys.argv[1:5], compliance_risk_area)
-	report_data = build_report_data(system_key, options, system_package, poam_data, compliance_risk_area, compliance_control_score_risk_area)
+	ppsm_data = load_ppsm_data(sys.argv[1:5])
+	checklist_missing_data = load_checklist_missing_data(sys.argv[1:5])
+	approved_pps_listing = load_approved_pps_listing(sys.argv[1:5])
+	report_data = build_report_data(system_key, options, system_package, poam_data, compliance_risk_area, compliance_control_score_risk_area, ppsm_data, checklist_missing_data, approved_pps_listing)
 	output_filename = f"OpenRMFPro-Risk-Profiler-{safe_filename_value(report_data['system_key'])}.pdf"
 	output_path = Path(output_filename)
 	pdf_writer = write_pdf(output_path, report_data)
