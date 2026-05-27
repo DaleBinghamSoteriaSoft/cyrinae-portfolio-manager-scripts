@@ -874,6 +874,62 @@ def build_patch_vulnerability_risk_rows(system_package: dict) -> list[dict[str, 
 	]
 
 
+def patch_vulnerability_risk_level(count: int, low_risk_key: str, medium_risk_key: str) -> str:
+	low_risk_max = risk_setting_count(low_risk_key)
+	medium_risk_max = risk_setting_count(medium_risk_key)
+	if count <= low_risk_max:
+		return "Low"
+	if count <= medium_risk_max:
+		return "Medium"
+	return "High"
+
+
+def build_patch_vulnerability_risk_summary_rows(system_package: dict) -> list[dict[str, str]]:
+	patch_score = system_package.get("patchScore", {}) if isinstance(system_package, dict) else {}
+	if not isinstance(patch_score, dict):
+		patch_score = {}
+	row_specs = [
+		(
+			"Critical Open Patch Vulnerabilities",
+			"totalCriticalOpen",
+			"maxPatchOpenCriticalVulnLowRisk",
+			"maxPatchOpenCriticalVulnMediumRisk",
+		),
+		(
+			"High Open Patch Vulnerabilities",
+			"totalHighOpen",
+			"maxPatchOpenHighVulnLowRisk",
+			"maxPatchOpenHighVulnMediumRisk",
+		),
+		(
+			"Medium Open Patch Vulnerabilities",
+			"totalMediumOpen",
+			"maxPatchOpenMediumVulnLowRisk",
+			"maxPatchOpenMediumVulnMediumRisk",
+		),
+		(
+			"Low Open Patch Vulnerabilities",
+			"totalLowOpen",
+			"maxPatchOpenLowVulnLowRisk",
+			"maxPatchOpenLowVulnMediumRisk",
+		),
+	]
+	rows = []
+	for title, score_key, low_risk_key, medium_risk_key in row_specs:
+		count = numeric_count(score_value(patch_score, score_key))
+		rows.append(
+			{
+				"title": title,
+				"score_key": score_key,
+				"count": str(count),
+				"low_risk_max": str(risk_setting_count(low_risk_key)),
+				"medium_risk_max": str(risk_setting_count(medium_risk_key)),
+				"risk": patch_vulnerability_risk_level(count, low_risk_key, medium_risk_key),
+			}
+		)
+	return rows
+
+
 def build_risk_settings_rows() -> list[dict[str, str]]:
 	return [{"key": key, "value": safe_text(value)} for key, value in RISK_SETTINGS.items()]
 
@@ -906,6 +962,7 @@ def build_report_data(system_key: str, options: dict[str, str], system_package: 
 		"checklist_risk_summary_rows": build_checklist_risk_summary_rows(system_package),
 		"checklist_missing_data_risk_area": build_checklist_missing_data_risk_area(checklist_missing_data),
 		"patch_vulnerability_risk_rows": build_patch_vulnerability_risk_rows(system_package),
+		"patch_vulnerability_risk_summary_rows": build_patch_vulnerability_risk_summary_rows(system_package),
 		"poam_risk_area": build_poam_risk_area(poam_data),
 		"poam_residual_risk_area": build_poam_residual_risk_area(poam_data),
 		"poam_ongoing_risk_area": build_poam_ongoing_risk_area(poam_data),
@@ -1100,6 +1157,49 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
+	patch_vulnerability_risk_summary_table = Table(
+		[
+			[
+				Paragraph("Patch Vulnerability Type", table_header_style),
+				Paragraph("Open", table_header_style),
+				Paragraph("Risk", table_header_style),
+			],
+			*[
+				[
+					Paragraph(row["title"], styles["BodyText"]),
+					row["count"],
+					row["risk"],
+				]
+				for row in report_data["patch_vulnerability_risk_summary_rows"]
+			],
+		],
+		hAlign="LEFT",
+		colWidths=[330, 70, 70],
+	)
+	patch_vulnerability_risk_summary_style = [
+		("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+		("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+		("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+		("ALIGN", (0, 0), (-1, 0), "CENTER"),
+		("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+		("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+	]
+	for row_index, row in enumerate(report_data["patch_vulnerability_risk_summary_rows"], start=1):
+		risk_color = colors.red
+		risk_text_color = colors.white
+		if row["risk"] == "Medium":
+			risk_color = colors.orange
+			risk_text_color = colors.black
+		elif row["risk"] == "Low":
+			risk_color = colors.yellow
+			risk_text_color = colors.black
+		patch_vulnerability_risk_summary_style.extend(
+			[
+				("BACKGROUND", (2, row_index), (2, row_index), risk_color),
+				("TEXTCOLOR", (2, row_index), (2, row_index), risk_text_color),
+			]
+		)
+	patch_vulnerability_risk_summary_table.setStyle(TableStyle(patch_vulnerability_risk_summary_style))
 	poam_risk_area = report_data["poam_risk_area"]
 	poam_risk_table = Table(
 		[
@@ -1591,6 +1691,14 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		story.append(Paragraph("Patch Vulnerability Risk 2D Histogram unavailable. Install matplotlib to render it.", styles["Normal"]))
 	story.extend(
 		[
+		Spacer(1, 12),
+		Paragraph("Overall Patch Vulnerability Risk", styles["Heading2"]),
+		Spacer(1, 8),
+		patch_vulnerability_risk_summary_table,
+		]
+	)
+	story.extend(
+		[
 		PageBreak(),
 		anchored_heading("POAM Risk Area", "poam-items"),
 		Spacer(1, 8),
@@ -1749,6 +1857,16 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	for row in report_data["patch_vulnerability_risk_rows"]:
 		patch_vulnerability_risk_lines.append(f"{row['risk']:<8}  {row['open']:>4}")
 	patch_vulnerability_risk_lines.extend(["", "Patch Vulnerability Risk 2D Histogram unavailable in fallback PDF output."])
+	patch_vulnerability_risk_lines.extend(
+		[
+			"",
+			"Overall Patch Vulnerability Risk",
+			"Patch Vulnerability Type | Open | Risk",
+			"------------------------ | ---- | ----",
+		]
+	)
+	for row in report_data["patch_vulnerability_risk_summary_rows"]:
+		patch_vulnerability_risk_lines.append(f"{row['title']} | {row['count']} | {row['risk']}")
 	poam_risk_area = report_data["poam_risk_area"]
 	poam_risk_lines = [
 		"POAM Risk Area",
