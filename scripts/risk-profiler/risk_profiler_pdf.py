@@ -13,6 +13,12 @@ from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+	sys.path.insert(0, str(SCRIPT_DIR))
+
+from risk_settings import RISK_SETTINGS
+
 REQUIRED_ARGUMENT_COUNT = 5
 REPORT_TITLE = "OpenRMF Professional Risk Profiler"
 SYSTEM_PACKAGE_SCRIPT_NAME = "get_systempackage_by_systemkey_json.py"
@@ -780,6 +786,66 @@ def build_cat_status_rows(system_package: dict) -> list[dict[str, str]]:
 	]
 
 
+def risk_setting_count(key: str) -> int:
+	return numeric_count(safe_text(RISK_SETTINGS.get(key, 0)))
+
+
+def checklist_risk_level(count: int, low_risk_key: str, medium_risk_key: str) -> str:
+	low_risk_max = risk_setting_count(low_risk_key)
+	medium_risk_max = risk_setting_count(medium_risk_key)
+	if count <= low_risk_max:
+		return "Low"
+	if count <= medium_risk_max:
+		return "Medium"
+	return "High"
+
+
+def build_checklist_risk_summary_rows(system_package: dict) -> list[dict[str, str]]:
+	score = system_package.get("score", {}) if isinstance(system_package, dict) else {}
+	if not isinstance(score, dict):
+		score = {}
+	row_specs = [
+		(
+			"Open Cat 1 High Checklist Vulnerabilities",
+			"totalCat1Open",
+			"maxChecklistOpenHighVulnLowRisk",
+			"maxChecklistOpenHighVulnMediumRisk",
+		),
+		(
+			"Open Cat 2 High Checklist Vulnerabilities",
+			"totalCat2Open",
+			"maxChecklistOpenMediumVulnLowRisk",
+			"maxChecklistOpenMediumVulnMediumRisk",
+		),
+		(
+			"Open Cat 3 High Checklist Vulnerabilities",
+			"totalCat3Open",
+			"maxChecklistOpenLowVulnLowRisk",
+			"maxChecklistOpenLowVulnMediumRisk",
+		),
+		(
+			"Not Reviewed Checklist Vulnerabilities",
+			"totalNotReviewed",
+			"maxChecklistNotReviewedHighVulnLowRisk",
+			"maxChecklistNotReviewedHighVulnMediumRisk",
+		),
+	]
+	rows = []
+	for title, score_key, low_risk_key, medium_risk_key in row_specs:
+		count = numeric_count(score_value(score, score_key))
+		rows.append(
+			{
+				"title": title,
+				"score_key": score_key,
+				"count": str(count),
+				"low_risk_max": str(risk_setting_count(low_risk_key)),
+				"medium_risk_max": str(risk_setting_count(medium_risk_key)),
+				"risk": checklist_risk_level(count, low_risk_key, medium_risk_key),
+			}
+		)
+	return rows
+
+
 def build_patch_vulnerability_risk_rows(system_package: dict) -> list[dict[str, str]]:
 	patch_score = system_package.get("patchScore", {}) if isinstance(system_package, dict) else {}
 	if not isinstance(patch_score, dict):
@@ -792,12 +858,17 @@ def build_patch_vulnerability_risk_rows(system_package: dict) -> list[dict[str, 
 	]
 
 
+def build_risk_settings_rows() -> list[dict[str, str]]:
+	return [{"key": key, "value": safe_text(value)} for key, value in RISK_SETTINGS.items()]
+
+
 def build_report_data(system_key: str, options: dict[str, str], system_package: dict, poam_data, compliance_risk_area: dict[str, str], compliance_control_score_risk_area: dict[str, str], ppsm_data=None, checklist_missing_data=None, approved_pps_listing=None) -> dict[str, str]:
 	return {
 		"system_key": system_key,
 		"framework_title": framework_value(system_package, options, {"frameworkTitle", "frameworktitle", "framework_title"}, "frameworkTitle", "frameworktitle", "framework_title"),
 		"framework_version": framework_value(system_package, options, {"frameworkVersion", "frameworkversion", "framework_version"}, "frameworkVersion", "frameworkversion", "framework_version"),
 		"cat_status_rows": build_cat_status_rows(system_package),
+		"checklist_risk_summary_rows": build_checklist_risk_summary_rows(system_package),
 		"checklist_missing_data_risk_area": build_checklist_missing_data_risk_area(checklist_missing_data),
 		"patch_vulnerability_risk_rows": build_patch_vulnerability_risk_rows(system_package),
 		"poam_risk_area": build_poam_risk_area(poam_data),
@@ -810,6 +881,7 @@ def build_report_data(system_key: str, options: dict[str, str], system_package: 
 		"compliance_control_score_risk_area": compliance_control_score_risk_area,
 		"pps_boundries_risk_area": build_pps_boundries_risk_area(ppsm_data),
 		"pps_listing_risk_area": build_pps_listing_risk_area(approved_pps_listing),
+		"risk_settings_rows": build_risk_settings_rows(),
 		"generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
 		"source_script": Path(__file__).name,
 	}
@@ -862,6 +934,49 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
+	checklist_risk_summary_table = Table(
+		[
+			[
+				Paragraph("Checklist Risk Type", table_header_style),
+				Paragraph("Count", table_header_style),
+				Paragraph("Risk", table_header_style),
+			],
+			*[
+				[
+					Paragraph(row["title"], styles["BodyText"]),
+					row["count"],
+					row["risk"],
+				]
+				for row in report_data["checklist_risk_summary_rows"]
+			],
+		],
+		hAlign="LEFT",
+		colWidths=[330, 70, 70],
+	)
+	checklist_risk_summary_style = [
+		("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+		("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+		("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+		("ALIGN", (0, 0), (-1, 0), "CENTER"),
+		("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+		("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+	]
+	for row_index, row in enumerate(report_data["checklist_risk_summary_rows"], start=1):
+		risk_color = colors.red
+		risk_text_color = colors.white
+		if row["risk"] == "Medium":
+			risk_color = colors.orange
+			risk_text_color = colors.black
+		elif row["risk"] == "Low":
+			risk_color = colors.yellow
+			risk_text_color = colors.black
+		checklist_risk_summary_style.extend(
+			[
+				("BACKGROUND", (2, row_index), (2, row_index), risk_color),
+				("TEXTCOLOR", (2, row_index), (2, row_index), risk_text_color),
+			]
+		)
+	checklist_risk_summary_table.setStyle(TableStyle(checklist_risk_summary_style))
 	checklist_missing_data_risk_area = report_data["checklist_missing_data_risk_area"]
 	checklist_missing_data_risk_table = Table(
 		[
@@ -1253,6 +1368,27 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
+	risk_settings_table = Table(
+		[
+			["Risk Setting", "Value"],
+			*[[Paragraph(row["key"], styles["BodyText"]), row["value"]] for row in report_data["risk_settings_rows"]],
+		],
+		hAlign="LEFT",
+		colWidths=[360, 100],
+		repeatRows=1,
+	)
+	risk_settings_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
 
 	def build_2d_histogram(rows: list[dict[str, str]], row_label_key: str, columns: list[tuple[str, str]], title: str, x_label: str) -> BytesIO | None:
 		try:
@@ -1349,6 +1485,14 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		story.append(Image(cat_status_histogram_image, width=500, height=240))
 	else:
 		story.append(Paragraph("Checklist Risk 2D Histogram unavailable. Install matplotlib to render it.", styles["Normal"]))
+	story.extend(
+		[
+		Spacer(1, 12),
+		Paragraph("Overall Checklist Risk", styles["Heading2"]),
+		Spacer(1, 8),
+		checklist_risk_summary_table,
+		]
+	)
 	story.extend(
 		[
 		PageBreak(),
@@ -1468,6 +1612,14 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		pps_listing_risk_table,
 		]
 	)
+	story.extend(
+		[
+		PageBreak(),
+		Paragraph("Risk Settings", styles["Heading1"]),
+		Spacer(1, 12),
+		risk_settings_table,
+		]
+	)
 	document.build(story)
 	return True
 
@@ -1498,6 +1650,16 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 			f"{row['category']:<5}  {row['open']:>4}  {row['not_a_finding']:>13}  {row['not_applicable']:>14}  {row['not_reviewed']:>12}"
 		)
 	cat_status_lines.extend(["", "Checklist Risk 2D Histogram unavailable in fallback PDF output."])
+	cat_status_lines.extend(
+		[
+			"",
+			"Overall Checklist Risk",
+			"Checklist Risk Type | Count | Risk",
+			"------------------- | ----- | ----",
+		]
+	)
+	for row in report_data["checklist_risk_summary_rows"]:
+		cat_status_lines.append(f"{row['title']} | {row['count']} | {row['risk']}")
 	checklist_missing_data_risk_area = report_data["checklist_missing_data_risk_area"]
 	checklist_missing_data_risk_lines = [
 		"Checklist Missing Data",
@@ -1618,6 +1780,8 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		f"Approved PPS Items: {pps_listing_risk_area['approved_count']}",
 		f"Risk: {pps_listing_risk_area['risk']}",
 	]
+	risk_settings_lines = ["Risk Settings", ""]
+	risk_settings_lines.extend([f"{row['key']}: {row['value']}" for row in report_data["risk_settings_rows"]])
 	page_streams = [
 		make_text_page(
 			[
@@ -1646,6 +1810,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		make_text_page(compliance_control_score_risk_lines),
 		make_text_page(pps_boundries_risk_lines),
 		make_text_page(pps_listing_risk_lines),
+		*[make_text_page(risk_settings_lines[index:index + 36]) for index in range(0, len(risk_settings_lines), 36)],
 	]
 	objects = [
 		b"<< /Type /Catalog /Pages 2 0 R >>",
