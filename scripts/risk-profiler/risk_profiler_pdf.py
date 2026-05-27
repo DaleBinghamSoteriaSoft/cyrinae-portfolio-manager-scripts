@@ -30,6 +30,22 @@ PPSM_SCRIPT_NAME = "get_systempackage_by_systemkey_ppsm_json.py"
 APPROVED_PPS_SCRIPT_NAME = "get_systempackage_by_systemkey_approvedpps_json.py"
 GENERAL_APPROVED_PPS_SCRIPT_NAME = "get_approvedpps_json.py"
 STATUS_COLUMNS = ["Open", "Not a Finding", "Not Applicable", "Not Reviewed"]
+REPORT_SECTIONS = [
+	{"title": "Checklist Risk", "anchor": "checklist-risk"},
+	{"title": "Checklist Missing Data", "anchor": "checklist-missing-data"},
+	{"title": "Patch Vulnerability Risk", "anchor": "patch-vulnerability-risk"},
+	{"title": "POAM Items", "anchor": "poam-items"},
+	{"title": "POAM Residual Risk", "anchor": "poam-residual-risk"},
+	{"title": "POAM Ongoing Risk", "anchor": "poam-ongoing-risk"},
+	{"title": "POAM Ongoing Residual Risk", "anchor": "poam-ongoing-residual-risk"},
+	{"title": "POAM Office Organization Ongoing Risk", "anchor": "poam-office-organization-ongoing-risk"},
+	{"title": "POAM False Positives Risk", "anchor": "poam-false-positives-risk"},
+	{"title": "Compliance", "anchor": "compliance"},
+	{"title": "Compliance Control Score", "anchor": "compliance-control-score"},
+	{"title": "Ports/Protocols/Services Boundries", "anchor": "pps-boundries"},
+	{"title": "Ports/Protocols/Services Lisitng", "anchor": "pps-listing"},
+	{"title": "Risk Settings", "anchor": "risk-settings"},
+]
 
 
 def get_project_python_executable() -> str:
@@ -862,11 +878,30 @@ def build_risk_settings_rows() -> list[dict[str, str]]:
 	return [{"key": key, "value": safe_text(value)} for key, value in RISK_SETTINGS.items()]
 
 
+def build_table_of_contents_rows() -> list[dict[str, str]]:
+	return [
+		{"title": section["title"], "anchor": section["anchor"], "page_number": str(page_number)}
+		for page_number, section in enumerate(REPORT_SECTIONS, start=2)
+	]
+
+
+def build_system_description(system_package: dict, options: dict[str, str]) -> str:
+	description = first_json_value(
+		system_package,
+		{"description", "systemDescription", "system_description", "systemPackageDescription", "packageDescription"},
+	)
+	if description:
+		return description
+	return optional_value(options, "description", "systemDescription", "system_description", "systemPackageDescription", "packageDescription")
+
+
 def build_report_data(system_key: str, options: dict[str, str], system_package: dict, poam_data, compliance_risk_area: dict[str, str], compliance_control_score_risk_area: dict[str, str], ppsm_data=None, checklist_missing_data=None, approved_pps_listing=None) -> dict[str, str]:
 	return {
 		"system_key": system_key,
+		"system_description": build_system_description(system_package, options),
 		"framework_title": framework_value(system_package, options, {"frameworkTitle", "frameworktitle", "framework_title"}, "frameworkTitle", "frameworktitle", "framework_title"),
 		"framework_version": framework_value(system_package, options, {"frameworkVersion", "frameworkversion", "framework_version"}, "frameworkVersion", "frameworkversion", "framework_version"),
+		"table_of_contents_rows": build_table_of_contents_rows(),
 		"cat_status_rows": build_cat_status_rows(system_package),
 		"checklist_risk_summary_rows": build_checklist_risk_summary_rows(system_package),
 		"checklist_missing_data_risk_area": build_checklist_missing_data_risk_area(checklist_missing_data),
@@ -904,6 +939,38 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	subheading_style.fontName = "Helvetica-Bold"
 	subheading_style.fontSize = 10
 	subheading_style.leading = 12
+	contents_link_style = styles["BodyText"].clone("ContentsLink")
+	contents_link_style.fontSize = 9
+	contents_link_style.leading = 11
+	contents_link_style.textColor = colors.blue
+
+	def anchored_heading(title: str, anchor: str):
+		return Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>{html.escape(title)}', styles["Heading1"])
+
+	def contents_link(title: str, anchor: str):
+		return Paragraph(f'<a href="#{html.escape(anchor, quote=True)}" color="blue">{html.escape(title)}</a>', contents_link_style)
+
+	contents_rows = report_data["table_of_contents_rows"]
+	contents_table_rows = [[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)]]
+	contents_table_rows.extend(
+		[
+			contents_link(row["title"], row["anchor"]),
+			row["page_number"],
+		]
+		for row in contents_rows
+	)
+	contents_table = Table(contents_table_rows, hAlign="LEFT", colWidths=[380, 90])
+	contents_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
 	cat_status_table = Table(
 		[
 			["CAT", *[Paragraph(status, table_header_style) for status in STATUS_COLUMNS]],
@@ -1470,11 +1537,15 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		Spacer(1, 12),
 		Paragraph(f"Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
 		Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
+		Paragraph(f"Description: {html.escape(report_data['system_description'])}", styles["Normal"]),
 		Paragraph(f"Framework Title: {html.escape(report_data['framework_title'])}", styles["Normal"]),
 		Paragraph(f"Framework Version: {html.escape(report_data['framework_version'])}", styles["Normal"]),
-		Paragraph(f"Source Script: {html.escape(report_data['source_script'])}", styles["Normal"]),
+		Spacer(1, 18),
+		Paragraph("Table of Contents", styles["Heading2"]),
+		Spacer(1, 8),
+		contents_table,
 		PageBreak(),
-		Paragraph("Checklist Risk", styles["Heading1"]),
+		anchored_heading("Checklist Risk", "checklist-risk"),
 		Spacer(1, 12),
 		cat_status_table,
 		Spacer(1, 18),
@@ -1496,7 +1567,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("Checklist Missing Data", styles["Heading1"]),
+		anchored_heading("Checklist Missing Data", "checklist-missing-data"),
 		Spacer(1, 8),
 		Paragraph("Any checklist vulnerabilities marked as Not a Finding or N/A but missing comments or details about why that is.", subheading_style),
 		Spacer(1, 12),
@@ -1506,7 +1577,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("Patch Vulnerability Risk", styles["Heading1"]),
+		anchored_heading("Patch Vulnerability Risk", "patch-vulnerability-risk"),
 		Spacer(1, 12),
 		patch_vulnerability_risk_table,
 		Spacer(1, 18),
@@ -1521,7 +1592,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("POAM Risk Area", styles["Heading1"]),
+		anchored_heading("POAM Risk Area", "poam-items"),
 		Spacer(1, 8),
 		Paragraph("POAM Items", styles["Heading2"]),
 		Spacer(1, 12),
@@ -1531,7 +1602,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("POAM Risk Area", styles["Heading1"]),
+		anchored_heading("POAM Risk Area", "poam-residual-risk"),
 		Spacer(1, 8),
 		Paragraph("Residual Risk", styles["Heading2"]),
 		Spacer(1, 12),
@@ -1541,7 +1612,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("POAM Risk Area", styles["Heading1"]),
+		anchored_heading("POAM Risk Area", "poam-ongoing-risk"),
 		Spacer(1, 8),
 		Paragraph("Ongoing Risk", styles["Heading2"]),
 		Spacer(1, 12),
@@ -1551,7 +1622,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("POAM Risk Area", styles["Heading1"]),
+		anchored_heading("POAM Risk Area", "poam-ongoing-residual-risk"),
 		Spacer(1, 8),
 		Paragraph("Ongoing Residual Risk", styles["Heading2"]),
 		Spacer(1, 12),
@@ -1561,7 +1632,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("POAM Risk Area", styles["Heading1"]),
+		anchored_heading("POAM Risk Area", "poam-office-organization-ongoing-risk"),
 		Spacer(1, 8),
 		Paragraph("Office Organization Ongoing Risk", styles["Heading2"]),
 		Spacer(1, 12),
@@ -1571,7 +1642,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("POAM Risk Area", styles["Heading1"]),
+		anchored_heading("POAM Risk Area", "poam-false-positives-risk"),
 		Spacer(1, 8),
 		Paragraph("False Positives Risk", styles["Heading2"]),
 		Spacer(1, 12),
@@ -1581,7 +1652,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("Compliance", styles["Heading1"]),
+		anchored_heading("Compliance", "compliance"),
 		Spacer(1, 12),
 		compliance_risk_table,
 		]
@@ -1589,7 +1660,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("Compliance", styles["Heading1"]),
+		anchored_heading("Compliance", "compliance-control-score"),
 		Spacer(1, 8),
 		Paragraph("Compliance Control Score", styles["Heading2"]),
 		Spacer(1, 12),
@@ -1599,7 +1670,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("Ports/Protocols/Services Boundries", styles["Heading1"]),
+		anchored_heading("Ports/Protocols/Services Boundries", "pps-boundries"),
 		Spacer(1, 12),
 		pps_boundries_risk_table,
 		]
@@ -1607,7 +1678,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("Ports/Protocols/Services Lisitng", styles["Heading1"]),
+		anchored_heading("Ports/Protocols/Services Lisitng", "pps-listing"),
 		Spacer(1, 12),
 		pps_listing_risk_table,
 		]
@@ -1615,7 +1686,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
-		Paragraph("Risk Settings", styles["Heading1"]),
+		anchored_heading("Risk Settings", "risk-settings"),
 		Spacer(1, 12),
 		risk_settings_table,
 		]
@@ -1782,6 +1853,8 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	]
 	risk_settings_lines = ["Risk Settings", ""]
 	risk_settings_lines.extend([f"{row['key']}: {row['value']}" for row in report_data["risk_settings_rows"]])
+	contents_lines = ["Table of Contents", "Page Title                                      Page Number", "--------------------------------------------  -----------"]
+	contents_lines.extend([f"{row['title']:<44}  {row['page_number']:>11}" for row in report_data["table_of_contents_rows"]])
 	page_streams = [
 		make_text_page(
 			[
@@ -1791,9 +1864,11 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 			"",
 			f"Generated: {report_data['generated_at']}",
 			f"System Key: {report_data['system_key']}",
+			f"Description: {report_data['system_description']}",
 			f"Framework Title: {report_data['framework_title']}",
 			f"Framework Version: {report_data['framework_version']}",
-			f"Source Script: {report_data['source_script']}",
+			"",
+			*contents_lines,
 			],
 			font_size=14,
 		),
