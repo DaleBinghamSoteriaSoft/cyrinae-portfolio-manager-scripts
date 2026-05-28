@@ -15,12 +15,28 @@ RISK_SETTINGS = {
     "maxPatchOpenMediumVulnMediumRisk": 5,
     "maxPatchOpenLowVulnLowRisk": 0,
     "maxPatchOpenLowVulnMediumRisk": 5,
-    
-    "minCompliancePercentOpenHighRisk": 50,
-    "minCompliancePercentCompleteHighRisk": 50,
-    "minCompliancePercentCompleteMediumRisk": 75,
-    "minCompliancePercentCompleteLowRisk": 90,
-    "allowedCompliancePercentCompleteZero": false, # if they hit this, it is HIGH
-    "allowedCompliancePercentOpenZero": false, # if they hit this, it is HIGH
-    "allowedScheduledCompletionPastDue": false, # if they hit this, it is HIGH
-}
+    "minCompliancePercentOpenHighRisk": 50,  
+    "minCompliancePercentOpenMediumRisk": 20,  
+    "minCompliancePercentCompleteHighRisk": 50,  
+    "minCompliancePercentCompleteMediumRisk": 75,  
+    "maxPOAMOngoingStatusLowRisk": 10,
+    "maxPOAMOngoingStatusMediumRisk": 25,
+    "maxPOAMAcceptedStatusLowRisk": 10,
+    "maxPOAMAcceptedStatusMediumRisk": 20,
+    "maxPOAMResidualRiskMitigationNotSetLowRisk": 10,
+    "maxPOAMResidualRiskMitigationNotSetMediumRisk": 30,
+    "maxPOAMOngoingStatusVeryHighResidualLowRisk": 0,
+    "maxPOAMOngoingStatusVeryHighResidualMediumRisk": 3,
+    "maxPOAMOngoingStatusHighResidualLowRisk": 1,
+    "maxPOAMOngoingStatusHighResidualMediumRisk": 5,
+    "maxPOAMOngoingStatusModerateResidualLowRisk": 10,
+    "maxPOAMOngoingStatusModerateResidualMediumRisk": 20,
+    "maxPOAMOngoingStatusLowResidualLowRisk": 20,
+    "maxPOAMOngoingStatusLowResidualMediumRisk": 30,
+    "maxPOAMOngoingStatusVeryLowResidualLowRisk": 30,
+    "maxPOAMOngoingStatusVeryLowResidualMediumRisk": 50,
+    "maxPOAMOfficeEmptyPercentLowRisk": 0,
+    "maxPOAMOfficeEmptyPercentMediumRisk": 10,
+    "maxPOAMOngoingStatusFalsePositivePercentLowRisk": 2,
+    "maxPOAMOngoingStatusFalsePositivePercentMediumRisk": 10,
+    }

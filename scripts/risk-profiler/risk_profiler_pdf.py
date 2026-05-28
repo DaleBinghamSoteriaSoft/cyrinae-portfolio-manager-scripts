@@ -284,6 +284,49 @@ def percentage_value(record: dict, keys: list[str]) -> float | None:
 		return None
 
 
+def risk_setting_percent(key: str) -> float:
+	try:
+		return float(safe_text(RISK_SETTINGS.get(key, 0)).strip().rstrip("%"))
+	except ValueError:
+		return 0.0
+
+
+def build_overall_compliance_risk_rows(average_open: float | None, average_complete: float | None) -> list[dict[str, str]]:
+	open_high_risk_min = risk_setting_percent("minCompliancePercentOpenHighRisk")
+	open_medium_risk_min = risk_setting_percent("minCompliancePercentOpenMediumRisk")
+	complete_high_risk_max = risk_setting_percent("minCompliancePercentCompleteHighRisk")
+	complete_medium_risk_max = risk_setting_percent("minCompliancePercentCompleteMediumRisk")
+	if average_open is None or average_complete is None:
+		return [
+			{"title": "High Open Compliance Risk", "percentage": "Unknown", "risk": "High"},
+			{"title": "Medium Open Compliance Risk", "percentage": "Unknown", "risk": "High"},
+			{"title": "Complete High Compliance Risk", "percentage": "Unknown", "risk": "High"},
+			{"title": "Complete Medium Compliance Risk", "percentage": "Unknown", "risk": "High"},
+		]
+	return [
+		{
+			"title": "High Open Compliance Risk",
+			"percentage": f"{average_open:.1f}%",
+			"risk": "High" if average_open > open_high_risk_min else "Low",
+		},
+		{
+			"title": "Medium Open Compliance Risk",
+			"percentage": f"{average_open:.1f}%",
+			"risk": "Medium" if average_open > open_medium_risk_min and average_open < open_high_risk_min else "Low",
+		},
+		{
+			"title": "Complete High Compliance Risk",
+			"percentage": f"{average_complete:.1f}%",
+			"risk": "High" if average_complete < complete_high_risk_max else "Low",
+		},
+		{
+			"title": "Complete Medium Compliance Risk",
+			"percentage": f"{average_complete:.1f}%",
+			"risk": "Medium" if average_complete >= complete_high_risk_max and average_complete < complete_medium_risk_max else "Low",
+		},
+	]
+
+
 def poam_records(poam_data) -> list[dict]:
 	return find_record_list(poam_data, ["records", "items", "data", "results", "poam", "poams", "poamItems", "poamRecords"])
 
@@ -336,6 +379,23 @@ def ppsm_boundary_value(record: dict, boundary_number: int, direction: str) -> b
 
 def is_very_high_risk_value(value: str) -> bool:
 	return safe_text(value).strip().lower().replace("_", " ").replace("-", " ") in {"very high", "veryhigh", "critical"}
+
+
+def normalize_residual_risk_level(value: str) -> str:
+	value_text = safe_text(value).strip().lower().replace("_", " ").replace("-", " ")
+	if value_text in {"", "none", "null"}:
+		return "Not Set"
+	if value_text in {"very high", "veryhigh", "critical"}:
+		return "Very High"
+	if value_text == "high":
+		return "High"
+	if value_text in {"moderate", "medium"}:
+		return "Moderate"
+	if value_text == "low":
+		return "Low"
+	if value_text in {"very low", "verylow"}:
+		return "Very Low"
+	return safe_text(value).strip() or "Not Set"
 
 
 def normalize_poam_status(value: str) -> str:
@@ -437,6 +497,53 @@ def build_poam_ongoing_risk_area(poam_data) -> dict[str, str]:
 	}
 
 
+def raw_severity_value(record: dict) -> str:
+	return safe_text(record.get("rawSeverity"))
+
+
+def poam_status_risk_level(count: int, low_risk_key: str, medium_risk_key: str) -> str:
+	low_risk_max = risk_setting_count(low_risk_key)
+	medium_risk_max = risk_setting_count(medium_risk_key)
+	if count <= low_risk_max:
+		return "Low"
+	if count <= medium_risk_max:
+		return "Medium"
+	return "High"
+
+
+def build_overall_poam_status_rows(poam_data) -> list[dict[str, str]]:
+	records = poam_records(poam_data)
+	row_specs = [
+		(
+			"POAM Ongoing Status",
+			"Ongoing",
+			"maxPOAMOngoingStatusLowRisk",
+			"maxPOAMOngoingStatusMediumRisk",
+		),
+		(
+			"POAM Accepted Status",
+			"Accepted",
+			"maxPOAMAcceptedStatusLowRisk",
+			"maxPOAMAcceptedStatusMediumRisk",
+		),
+	]
+	rows = []
+	for title, status, low_risk_key, medium_risk_key in row_specs:
+		count = sum(
+			1
+			for record in records
+			if poam_status(record) == status and not is_empty_value(raw_severity_value(record))
+		)
+		rows.append(
+			{
+				"title": title,
+				"count": str(count),
+				"risk": poam_status_risk_level(count, low_risk_key, medium_risk_key),
+			}
+		)
+	return rows
+
+
 def build_poam_ongoing_residual_risk_area(poam_data) -> dict[str, str]:
 	records = poam_records(poam_data)
 	ongoing_records = [record for record in records if poam_status(record) == "Ongoing"]
@@ -459,26 +566,101 @@ def build_poam_ongoing_residual_risk_area(poam_data) -> dict[str, str]:
 	}
 
 
+def build_overall_poam_ongoing_residual_risk_rows(poam_data) -> list[dict[str, str]]:
+	records = poam_records(poam_data)
+	ongoing_records = [record for record in records if poam_status(record) == "Ongoing"]
+	row_specs = [
+		(
+			"POAM Ongoing Very High Status",
+			"Very High",
+			"maxPOAMOngoingStatusVeryHighResidualLowRisk",
+			"maxPOAMOngoingStatusVeryHighResidualMediumRisk",
+		),
+		(
+			"POAM Ongoing High Status",
+			"High",
+			"maxPOAMOngoingStatusHighResidualLowRisk",
+			"maxPOAMOngoingStatusHighResidualMediumRisk",
+		),
+		(
+			"POAM Ongoing Moderate Status",
+			"Moderate",
+			"maxPOAMOngoingStatusModerateResidualLowRisk",
+			"maxPOAMOngoingStatusModerateResidualMediumRisk",
+		),
+		(
+			"POAM Ongoing Low Status",
+			"Low",
+			"maxPOAMOngoingStatusLowResidualLowRisk",
+			"maxPOAMOngoingStatusLowResidualMediumRisk",
+		),
+		(
+			"POAM Ongoing Very Low Status",
+			"Very Low",
+			"maxPOAMOngoingStatusVeryLowResidualLowRisk",
+			"maxPOAMOngoingStatusVeryLowResidualMediumRisk",
+		),
+		(
+			"POAM Residual Risk Not Set",
+			"Not Set",
+			"maxPOAMResidualRiskMitigationNotSetLowRisk",
+			"maxPOAMResidualRiskMitigationNotSetMediumRisk",
+		),
+	]
+	rows = []
+	for title, residual_risk_level, low_risk_key, medium_risk_key in row_specs:
+		count = sum(
+			1
+			for record in ongoing_records
+			if normalize_residual_risk_level(residual_risk_mitigation_value(record)) == residual_risk_level
+		)
+		rows.append(
+			{
+				"title": title,
+				"count": str(count),
+				"risk": poam_status_risk_level(count, low_risk_key, medium_risk_key),
+			}
+		)
+	return rows
+
+
 def build_poam_office_organization_ongoing_risk_area(poam_data) -> dict[str, str]:
 	records = poam_records(poam_data)
 	ongoing_records = [record for record in records if poam_status(record) == "Ongoing"]
 	ongoing_count = len(ongoing_records)
 	empty_count = sum(1 for record in ongoing_records if is_empty_value(office_organization_value(record)))
 	empty_percent = (empty_count / ongoing_count * 100) if ongoing_count else 0
-	if empty_percent > 50:
-		risk = "High"
-	elif empty_percent > 25 and empty_percent < 50:
-		risk = "Moderate"
-	elif empty_percent > 25:
-		risk = "Low"
-	else:
-		risk = "Low"
 	return {
-		"risk": risk,
+		"risk": poam_office_organization_risk_level(empty_percent),
 		"ongoing_count": str(ongoing_count),
 		"empty_count": str(empty_count),
 		"empty_percent": f"{empty_percent:.1f}%",
 	}
+
+
+def poam_office_organization_risk_level(empty_percent: float) -> str:
+	low_risk_max = risk_setting_percent("maxPOAMOfficeEmptyPercentLowRisk")
+	medium_risk_max = risk_setting_percent("maxPOAMOfficeEmptyPercentMediumRisk")
+	if empty_percent <= low_risk_max:
+		return "Low"
+	if empty_percent <= medium_risk_max:
+		return "Moderate"
+	return "High"
+
+
+def build_overall_poam_office_organization_risk_rows(poam_data) -> list[dict[str, str]]:
+	records = poam_records(poam_data)
+	ongoing_records = [record for record in records if poam_status(record) == "Ongoing"]
+	ongoing_count = len(ongoing_records)
+	empty_count = sum(1 for record in ongoing_records if is_empty_value(office_organization_value(record)))
+	empty_percent = (empty_count / ongoing_count * 100) if ongoing_count else 0
+	return [
+		{
+			"title": "POAM Office Organization Empty Percentage",
+			"percentage": f"{empty_percent:.1f}%",
+			"risk": poam_office_organization_risk_level(empty_percent),
+		}
+	]
 
 
 def build_poam_false_positives_risk_area(poam_data) -> dict[str, str]:
@@ -499,6 +681,31 @@ def build_poam_false_positives_risk_area(poam_data) -> dict[str, str]:
 		"false_positive_count": str(false_positive_count),
 		"false_positive_percent": f"{false_positive_percent:.1f}%",
 	}
+
+
+def poam_false_positive_risk_level(false_positive_percent: float) -> str:
+	low_risk_max = risk_setting_percent("maxPOAMOngoingStatusFalsePositivePercentLowRisk")
+	medium_risk_max = risk_setting_percent("maxPOAMOngoingStatusFalsePositivePercentMediumRisk")
+	if false_positive_percent <= low_risk_max:
+		return "Low"
+	if false_positive_percent <= medium_risk_max:
+		return "Medium"
+	return "High"
+
+
+def build_overall_poam_false_positives_risk_rows(poam_data) -> list[dict[str, str]]:
+	records = poam_records(poam_data)
+	ongoing_records = [record for record in records if poam_status(record) == "Ongoing"]
+	ongoing_count = len(ongoing_records)
+	false_positive_count = sum(1 for record in ongoing_records if bool_value(record.get("falsePositive")))
+	false_positive_percent = (false_positive_count / ongoing_count * 100) if ongoing_count else 0
+	return [
+		{
+			"title": "POAM Ongoing False Positive Percentage",
+			"percentage": f"{false_positive_percent:.1f}%",
+			"risk": poam_false_positive_risk_level(false_positive_percent),
+		}
+	]
 
 
 def build_compliance_risk_area(arguments: list[str]) -> dict[str, str]:
@@ -544,6 +751,7 @@ def build_compliance_control_score_risk_area(arguments: list[str], compliance_ri
 			"both_zero_percent": "0.0%",
 			"average_open": "Unknown",
 			"average_complete": "Unknown",
+			"overall_compliance_risk_rows": build_overall_compliance_risk_rows(None, None),
 		}
 	allcontrols_script = Path(__file__).resolve().parents[1] / "compliance" / COMPLIANCE_ALLCONTROLS_SCRIPT_NAME
 	allcontrols_result = call_child_script_result(allcontrols_script, [*arguments, compliance_id])
@@ -557,6 +765,7 @@ def build_compliance_control_score_risk_area(arguments: list[str], compliance_ri
 			"both_zero_percent": "0.0%",
 			"average_open": "Unknown",
 			"average_complete": "Unknown",
+			"overall_compliance_risk_rows": build_overall_compliance_risk_rows(None, None),
 		}
 	control_score_data = parse_json_value_from_output_or_none(allcontrols_result.stdout)
 	records = control_score_records(control_score_data)
@@ -577,6 +786,7 @@ def build_compliance_control_score_risk_area(arguments: list[str], compliance_ri
 			"both_zero_percent": "0.0%",
 			"average_open": "Unknown",
 			"average_complete": "Unknown",
+			"overall_compliance_risk_rows": build_overall_compliance_risk_rows(None, None),
 		}
 	both_zero_count = sum(1 for percentage_open, percentage_complete in percentage_pairs if percentage_open == 0 and percentage_complete == 0)
 	both_zero_percent = both_zero_count / len(percentage_pairs) * 100
@@ -601,6 +811,7 @@ def build_compliance_control_score_risk_area(arguments: list[str], compliance_ri
 		"both_zero_percent": f"{both_zero_percent:.1f}%",
 		"average_open": f"{average_open:.1f}%",
 		"average_complete": f"{average_complete:.1f}%",
+		"overall_compliance_risk_rows": build_overall_compliance_risk_rows(average_open, average_complete),
 	}
 
 
@@ -966,11 +1177,16 @@ def build_report_data(system_key: str, options: dict[str, str], system_package: 
 		"poam_risk_area": build_poam_risk_area(poam_data),
 		"poam_residual_risk_area": build_poam_residual_risk_area(poam_data),
 		"poam_ongoing_risk_area": build_poam_ongoing_risk_area(poam_data),
+		"overall_poam_status_rows": build_overall_poam_status_rows(poam_data),
 		"poam_ongoing_residual_risk_area": build_poam_ongoing_residual_risk_area(poam_data),
+		"overall_poam_ongoing_residual_risk_rows": build_overall_poam_ongoing_residual_risk_rows(poam_data),
 		"poam_office_organization_ongoing_risk_area": build_poam_office_organization_ongoing_risk_area(poam_data),
+		"overall_poam_office_organization_risk_rows": build_overall_poam_office_organization_risk_rows(poam_data),
 		"poam_false_positives_risk_area": build_poam_false_positives_risk_area(poam_data),
+		"overall_poam_false_positives_risk_rows": build_overall_poam_false_positives_risk_rows(poam_data),
 		"compliance_risk_area": compliance_risk_area,
 		"compliance_control_score_risk_area": compliance_control_score_risk_area,
+		"overall_compliance_risk_rows": compliance_control_score_risk_area.get("overall_compliance_risk_rows", build_overall_compliance_risk_rows(None, None)),
 		"pps_boundries_risk_area": build_pps_boundries_risk_area(ppsm_data),
 		"pps_listing_risk_area": build_pps_listing_risk_area(approved_pps_listing),
 		"risk_settings_rows": build_risk_settings_rows(),
@@ -1297,6 +1513,49 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
+	overall_poam_status_table = Table(
+		[
+			[
+				Paragraph("POAM Status Type", table_header_style),
+				Paragraph("rawSeverity Count", table_header_style),
+				Paragraph("Risk", table_header_style),
+			],
+			*[
+				[
+					Paragraph(row["title"], styles["BodyText"]),
+					row["count"],
+					row["risk"],
+				]
+				for row in report_data["overall_poam_status_rows"]
+			],
+		],
+		hAlign="LEFT",
+		colWidths=[260, 110, 70],
+	)
+	overall_poam_status_style = [
+		("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+		("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+		("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+		("ALIGN", (0, 0), (-1, 0), "CENTER"),
+		("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+		("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+	]
+	for row_index, row in enumerate(report_data["overall_poam_status_rows"], start=1):
+		risk_color = colors.red
+		risk_text_color = colors.white
+		if row["risk"] == "Medium":
+			risk_color = colors.orange
+			risk_text_color = colors.black
+		elif row["risk"] == "Low":
+			risk_color = colors.yellow
+			risk_text_color = colors.black
+		overall_poam_status_style.extend(
+			[
+				("BACKGROUND", (2, row_index), (2, row_index), risk_color),
+				("TEXTCOLOR", (2, row_index), (2, row_index), risk_text_color),
+			]
+		)
+	overall_poam_status_table.setStyle(TableStyle(overall_poam_status_style))
 	poam_ongoing_residual_risk_area = report_data["poam_ongoing_residual_risk_area"]
 	poam_ongoing_residual_risk_table = Table(
 		[
@@ -1332,6 +1591,49 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
+	overall_poam_ongoing_residual_risk_table = Table(
+		[
+			[
+				Paragraph("POAM Residual Risk Type", table_header_style),
+				Paragraph("Count", table_header_style),
+				Paragraph("Risk", table_header_style),
+			],
+			*[
+				[
+					Paragraph(row["title"], styles["BodyText"]),
+					row["count"],
+					row["risk"],
+				]
+				for row in report_data["overall_poam_ongoing_residual_risk_rows"]
+			],
+		],
+		hAlign="LEFT",
+		colWidths=[260, 90, 70],
+	)
+	overall_poam_ongoing_residual_risk_style = [
+		("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+		("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+		("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+		("ALIGN", (0, 0), (-1, 0), "CENTER"),
+		("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+		("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+	]
+	for row_index, row in enumerate(report_data["overall_poam_ongoing_residual_risk_rows"], start=1):
+		risk_color = colors.red
+		risk_text_color = colors.white
+		if row["risk"] == "Medium":
+			risk_color = colors.orange
+			risk_text_color = colors.black
+		elif row["risk"] == "Low":
+			risk_color = colors.yellow
+			risk_text_color = colors.black
+		overall_poam_ongoing_residual_risk_style.extend(
+			[
+				("BACKGROUND", (2, row_index), (2, row_index), risk_color),
+				("TEXTCOLOR", (2, row_index), (2, row_index), risk_text_color),
+			]
+		)
+	overall_poam_ongoing_residual_risk_table.setStyle(TableStyle(overall_poam_ongoing_residual_risk_style))
 	poam_office_organization_ongoing_risk_area = report_data["poam_office_organization_ongoing_risk_area"]
 	poam_office_organization_ongoing_risk_table = Table(
 		[
@@ -1367,6 +1669,49 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
+	overall_poam_office_organization_risk_table = Table(
+		[
+			[
+				Paragraph("POAM Office Organization Risk Type", table_header_style),
+				Paragraph("Percentage", table_header_style),
+				Paragraph("Risk", table_header_style),
+			],
+			*[
+				[
+					Paragraph(row["title"], styles["BodyText"]),
+					row["percentage"],
+					row["risk"],
+				]
+				for row in report_data["overall_poam_office_organization_risk_rows"]
+			],
+		],
+		hAlign="LEFT",
+		colWidths=[290, 90, 70],
+	)
+	overall_poam_office_organization_risk_style = [
+		("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+		("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+		("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+		("ALIGN", (0, 0), (-1, 0), "CENTER"),
+		("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+		("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+	]
+	for row_index, row in enumerate(report_data["overall_poam_office_organization_risk_rows"], start=1):
+		risk_color = colors.red
+		risk_text_color = colors.white
+		if row["risk"] == "Moderate":
+			risk_color = colors.orange
+			risk_text_color = colors.black
+		elif row["risk"] == "Low":
+			risk_color = colors.yellow
+			risk_text_color = colors.black
+		overall_poam_office_organization_risk_style.extend(
+			[
+				("BACKGROUND", (2, row_index), (2, row_index), risk_color),
+				("TEXTCOLOR", (2, row_index), (2, row_index), risk_text_color),
+			]
+		)
+	overall_poam_office_organization_risk_table.setStyle(TableStyle(overall_poam_office_organization_risk_style))
 	poam_false_positives_risk_area = report_data["poam_false_positives_risk_area"]
 	poam_false_positives_risk_table = Table(
 		[
@@ -1402,6 +1747,49 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
+	overall_poam_false_positives_risk_table = Table(
+		[
+			[
+				Paragraph("POAM False Positives Risk Type", table_header_style),
+				Paragraph("Percentage", table_header_style),
+				Paragraph("Risk", table_header_style),
+			],
+			*[
+				[
+					Paragraph(row["title"], styles["BodyText"]),
+					row["percentage"],
+					row["risk"],
+				]
+				for row in report_data["overall_poam_false_positives_risk_rows"]
+			],
+		],
+		hAlign="LEFT",
+		colWidths=[290, 90, 70],
+	)
+	overall_poam_false_positives_risk_style = [
+		("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+		("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+		("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+		("ALIGN", (0, 0), (-1, 0), "CENTER"),
+		("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+		("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+	]
+	for row_index, row in enumerate(report_data["overall_poam_false_positives_risk_rows"], start=1):
+		risk_color = colors.red
+		risk_text_color = colors.white
+		if row["risk"] == "Medium":
+			risk_color = colors.orange
+			risk_text_color = colors.black
+		elif row["risk"] == "Low":
+			risk_color = colors.yellow
+			risk_text_color = colors.black
+		overall_poam_false_positives_risk_style.extend(
+			[
+				("BACKGROUND", (2, row_index), (2, row_index), risk_color),
+				("TEXTCOLOR", (2, row_index), (2, row_index), risk_text_color),
+			]
+		)
+	overall_poam_false_positives_risk_table.setStyle(TableStyle(overall_poam_false_positives_risk_style))
 	compliance_risk_area = report_data["compliance_risk_area"]
 	compliance_risk_table = Table(
 		[
@@ -1431,6 +1819,49 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
+	overall_compliance_risk_table = Table(
+		[
+			[
+				Paragraph("Compliance Risk Type", table_header_style),
+				Paragraph("Percentage", table_header_style),
+				Paragraph("Risk", table_header_style),
+			],
+			*[
+				[
+					Paragraph(row["title"], styles["BodyText"]),
+					row["percentage"],
+					row["risk"],
+				]
+				for row in report_data["overall_compliance_risk_rows"]
+			],
+		],
+		hAlign="LEFT",
+		colWidths=[300, 90, 80],
+	)
+	overall_compliance_risk_style = [
+		("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+		("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+		("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+		("ALIGN", (0, 0), (-1, 0), "CENTER"),
+		("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+		("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+	]
+	for row_index, row in enumerate(report_data["overall_compliance_risk_rows"], start=1):
+		risk_color = colors.red
+		risk_text_color = colors.white
+		if row["risk"] == "Medium":
+			risk_color = colors.orange
+			risk_text_color = colors.black
+		elif row["risk"] == "Low":
+			risk_color = colors.yellow
+			risk_text_color = colors.black
+		overall_compliance_risk_style.extend(
+			[
+				("BACKGROUND", (2, row_index), (2, row_index), risk_color),
+				("TEXTCOLOR", (2, row_index), (2, row_index), risk_text_color),
+			]
+		)
+	overall_compliance_risk_table.setStyle(TableStyle(overall_compliance_risk_style))
 	compliance_control_score_risk_area = report_data["compliance_control_score_risk_area"]
 	compliance_control_score_risk_table = Table(
 		[
@@ -1725,6 +2156,10 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		Paragraph("Ongoing Risk", styles["Heading2"]),
 		Spacer(1, 12),
 		poam_ongoing_risk_table,
+		Spacer(1, 12),
+		Paragraph("Overall POAM Status", styles["Heading2"]),
+		Spacer(1, 8),
+		overall_poam_status_table,
 		]
 	)
 	story.extend(
@@ -1735,6 +2170,10 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		Paragraph("Ongoing Residual Risk", styles["Heading2"]),
 		Spacer(1, 12),
 		poam_ongoing_residual_risk_table,
+		Spacer(1, 12),
+		Paragraph("Overall POAM Residual Risk", styles["Heading2"]),
+		Spacer(1, 8),
+		overall_poam_ongoing_residual_risk_table,
 		]
 	)
 	story.extend(
@@ -1745,6 +2184,10 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		Paragraph("Office Organization Ongoing Risk", styles["Heading2"]),
 		Spacer(1, 12),
 		poam_office_organization_ongoing_risk_table,
+		Spacer(1, 12),
+		Paragraph("Overall POAM Office Organization Risk", styles["Heading2"]),
+		Spacer(1, 8),
+		overall_poam_office_organization_risk_table,
 		]
 	)
 	story.extend(
@@ -1755,6 +2198,10 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		Paragraph("False Positives Risk", styles["Heading2"]),
 		Spacer(1, 12),
 		poam_false_positives_risk_table,
+		Spacer(1, 12),
+		Paragraph("Overall POAM False Positives Risk", styles["Heading2"]),
+		Spacer(1, 8),
+		overall_poam_false_positives_risk_table,
 		]
 	)
 	story.extend(
@@ -1763,6 +2210,10 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		anchored_heading("Compliance", "compliance"),
 		Spacer(1, 12),
 		compliance_risk_table,
+		Spacer(1, 12),
+		Paragraph("Overall Compliance Risk", styles["Heading2"]),
+		Spacer(1, 8),
+		overall_compliance_risk_table,
 		]
 	)
 	story.extend(
@@ -1900,6 +2351,16 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		f"Accepted Percentage of Ongoing Items: {poam_ongoing_risk_area['accepted_percent']}",
 		f"Risk: {poam_ongoing_risk_area['risk']}",
 	]
+	poam_ongoing_risk_lines.extend(
+		[
+			"",
+			"Overall POAM Status",
+			"POAM Status Type | rawSeverity Count | Risk",
+			"---------------- | ----------------- | ----",
+		]
+	)
+	for row in report_data["overall_poam_status_rows"]:
+		poam_ongoing_risk_lines.append(f"{row['title']} | {row['count']} | {row['risk']}")
 	poam_ongoing_residual_risk_area = report_data["poam_ongoing_residual_risk_area"]
 	poam_ongoing_residual_risk_lines = [
 		"POAM Risk Area",
@@ -1910,6 +2371,16 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		f"Very High Percentage of Ongoing Items: {poam_ongoing_residual_risk_area['very_high_percent']}",
 		f"Risk: {poam_ongoing_residual_risk_area['risk']}",
 	]
+	poam_ongoing_residual_risk_lines.extend(
+		[
+			"",
+			"Overall POAM Residual Risk",
+			"POAM Residual Risk Type | Count | Risk",
+			"----------------------- | ----- | ----",
+		]
+	)
+	for row in report_data["overall_poam_ongoing_residual_risk_rows"]:
+		poam_ongoing_residual_risk_lines.append(f"{row['title']} | {row['count']} | {row['risk']}")
 	poam_office_organization_ongoing_risk_area = report_data["poam_office_organization_ongoing_risk_area"]
 	poam_office_organization_ongoing_risk_lines = [
 		"POAM Risk Area",
@@ -1920,6 +2391,16 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		f"Empty Percentage of Ongoing Items: {poam_office_organization_ongoing_risk_area['empty_percent']}",
 		f"Risk: {poam_office_organization_ongoing_risk_area['risk']}",
 	]
+	poam_office_organization_ongoing_risk_lines.extend(
+		[
+			"",
+			"Overall POAM Office Organization Risk",
+			"POAM Office Organization Risk Type | Percentage | Risk",
+			"---------------------------------- | ---------- | ----",
+		]
+	)
+	for row in report_data["overall_poam_office_organization_risk_rows"]:
+		poam_office_organization_ongoing_risk_lines.append(f"{row['title']} | {row['percentage']} | {row['risk']}")
 	poam_false_positives_risk_area = report_data["poam_false_positives_risk_area"]
 	poam_false_positives_risk_lines = [
 		"POAM Risk Area",
@@ -1930,6 +2411,16 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		f"False Positive Percentage of Completed Items: {poam_false_positives_risk_area['false_positive_percent']}",
 		f"Risk: {poam_false_positives_risk_area['risk']}",
 	]
+	poam_false_positives_risk_lines.extend(
+		[
+			"",
+			"Overall POAM False Positives Risk",
+			"POAM False Positives Risk Type | Percentage | Risk",
+			"------------------------------ | ---------- | ----",
+		]
+	)
+	for row in report_data["overall_poam_false_positives_risk_rows"]:
+		poam_false_positives_risk_lines.append(f"{row['title']} | {row['percentage']} | {row['risk']}")
 	compliance_risk_area = report_data["compliance_risk_area"]
 	compliance_risk_lines = [
 		"Compliance",
@@ -1939,6 +2430,16 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		f"Compliance ID: {compliance_risk_area['compliance_id']}",
 		f"Risk: {compliance_risk_area['risk']}",
 	]
+	compliance_risk_lines.extend(
+		[
+			"",
+			"Overall Compliance Risk",
+			"Compliance Risk Type | Percentage | Risk",
+			"-------------------- | ---------- | ----",
+		]
+	)
+	for row in report_data["overall_compliance_risk_rows"]:
+		compliance_risk_lines.append(f"{row['title']} | {row['percentage']} | {row['risk']}")
 	compliance_control_score_risk_area = report_data["compliance_control_score_risk_area"]
 	compliance_control_score_risk_lines = [
 		"Compliance",
