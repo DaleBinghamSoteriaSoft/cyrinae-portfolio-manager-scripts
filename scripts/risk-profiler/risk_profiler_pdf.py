@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 import sys
+import copy
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -34,16 +35,10 @@ REPORT_SECTIONS = [
 	{"title": "Checklist Risk", "anchor": "checklist-risk"},
 	{"title": "Checklist Missing Data", "anchor": "checklist-missing-data"},
 	{"title": "Patch Vulnerability Risk", "anchor": "patch-vulnerability-risk"},
-	{"title": "POAM Items", "anchor": "poam-items"},
-	{"title": "POAM Residual Risk", "anchor": "poam-residual-risk"},
-	{"title": "POAM Ongoing Risk", "anchor": "poam-ongoing-risk"},
-	{"title": "POAM Ongoing Residual Risk", "anchor": "poam-ongoing-residual-risk"},
-	{"title": "POAM Office Organization Ongoing Risk", "anchor": "poam-office-organization-ongoing-risk"},
+	{"title": "POAM Risk Area", "anchor": "poam-items"},
 	{"title": "POAM False Positives Risk", "anchor": "poam-false-positives-risk"},
 	{"title": "Compliance", "anchor": "compliance"},
-	{"title": "Compliance Control Score", "anchor": "compliance-control-score"},
-	{"title": "Ports/Protocols/Services Boundries", "anchor": "pps-boundries"},
-	{"title": "Ports/Protocols/Services Lisitng", "anchor": "pps-listing"},
+	{"title": "Ports/Protocols/Services", "anchor": "pps-boundaries"},
 	{"title": "Risk Settings", "anchor": "risk-settings"},
 ]
 
@@ -944,7 +939,7 @@ def build_checklist_missing_data_risk_area(missingdata) -> dict[str, str]:
 	}
 
 
-def build_pps_boundries_risk_area(ppsm_data) -> dict[str, str]:
+def build_pps_boundaries_risk_area(ppsm_data) -> dict[str, str]:
 	records = ppsm_records(ppsm_data)
 	in_crossings = 0
 	out_crossings = 0
@@ -1146,10 +1141,14 @@ def build_risk_settings_rows() -> list[dict[str, str]]:
 
 
 def build_table_of_contents_rows() -> list[dict[str, str]]:
-	return [
-		{"title": section["title"], "anchor": section["anchor"], "page_number": str(page_number)}
-		for page_number, section in enumerate(REPORT_SECTIONS, start=2)
-	]
+	rows = []
+	page_number = 1
+	same_page_as_previous = {"compliance-control-score", "pps-listing"}
+	for section in REPORT_SECTIONS:
+		if section["anchor"] not in same_page_as_previous:
+			page_number += 1
+		rows.append({"title": section["title"], "anchor": section["anchor"], "page_number": str(page_number)})
+	return rows
 
 
 def build_system_description(system_package: dict, options: dict[str, str]) -> str:
@@ -1187,7 +1186,7 @@ def build_report_data(system_key: str, options: dict[str, str], system_package: 
 		"compliance_risk_area": compliance_risk_area,
 		"compliance_control_score_risk_area": compliance_control_score_risk_area,
 		"overall_compliance_risk_rows": compliance_control_score_risk_area.get("overall_compliance_risk_rows", build_overall_compliance_risk_rows(None, None)),
-		"pps_boundries_risk_area": build_pps_boundries_risk_area(ppsm_data),
+		"pps_boundaries_risk_area": build_pps_boundaries_risk_area(ppsm_data),
 		"pps_listing_risk_area": build_pps_listing_risk_area(approved_pps_listing),
 		"risk_settings_rows": build_risk_settings_rows(),
 		"generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
@@ -1200,9 +1199,19 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		from reportlab.lib import colors  # pyright: ignore[reportMissingModuleSource]
 		from reportlab.lib.pagesizes import letter  # pyright: ignore[reportMissingModuleSource]
 		from reportlab.lib.styles import getSampleStyleSheet  # pyright: ignore[reportMissingModuleSource]
-		from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle  # pyright: ignore[reportMissingModuleSource]
+		from reportlab.platypus import Image, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle  # pyright: ignore[reportMissingModuleSource]
 	except ImportError:
 		return False
+
+	class SectionPageNumberDocTemplate(SimpleDocTemplate):
+		def __init__(self, *args, **kwargs):
+			super().__init__(*args, **kwargs)
+			self.section_page_numbers = {}
+
+		def afterFlowable(self, flowable):
+			anchor = getattr(flowable, "_toc_anchor", None)
+			if anchor and anchor not in self.section_page_numbers:
+				self.section_page_numbers[anchor] = self.page
 
 	styles = getSampleStyleSheet()
 	table_header_style = styles["BodyText"].clone("CenteredTableHeader")
@@ -1216,34 +1225,54 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	contents_link_style.fontSize = 9
 	contents_link_style.leading = 11
 	contents_link_style.textColor = colors.blue
+	anchor_marker_style = styles["Normal"].clone("AnchorMarker")
+	anchor_marker_style.fontSize = 0
+	anchor_marker_style.leading = 0
+	poam_section_gap = 14
+	poam_heading_gap = 8
 
 	def anchored_heading(title: str, anchor: str):
-		return Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>{html.escape(title)}', styles["Heading1"])
+		paragraph = Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>{html.escape(title)}', styles["Heading1"])
+		paragraph._toc_anchor = anchor
+		return paragraph
+
+	def anchored_subheading(title: str, anchor: str):
+		paragraph = Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>{html.escape(title)}', styles["Heading2"])
+		paragraph._toc_anchor = anchor
+		return paragraph
+
+	def anchor_marker(anchor: str):
+		paragraph = Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>', anchor_marker_style)
+		paragraph._toc_anchor = anchor
+		return paragraph
 
 	def contents_link(title: str, anchor: str):
 		return Paragraph(f'<a href="#{html.escape(anchor, quote=True)}" color="blue">{html.escape(title)}</a>', contents_link_style)
 
-	contents_rows = report_data["table_of_contents_rows"]
-	contents_table_rows = [[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)]]
-	contents_table_rows.extend(
-		[
-			contents_link(row["title"], row["anchor"]),
-			row["page_number"],
-		]
-		for row in contents_rows
-	)
-	contents_table = Table(contents_table_rows, hAlign="LEFT", colWidths=[380, 90])
-	contents_table.setStyle(
-		TableStyle(
+	def build_contents_table(contents_rows):
+		contents_table_rows = [[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)]]
+		contents_table_rows.extend(
 			[
-				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-				("ALIGN", (1, 1), (1, -1), "RIGHT"),
-				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+				contents_link(row["title"], row["anchor"]),
+				row["page_number"],
 			]
+			for row in contents_rows
 		)
-	)
+		contents_table = Table(contents_table_rows, hAlign="LEFT", colWidths=[380, 90])
+		contents_table.setStyle(
+			TableStyle(
+				[
+					("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+					("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+					("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+					("ALIGN", (1, 1), (1, -1), "RIGHT"),
+					("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+				]
+			)
+		)
+		return contents_table
+
+	contents_table = build_contents_table(report_data["table_of_contents_rows"])
 	cat_status_table = Table(
 		[
 			["CAT", *[Paragraph(status, table_header_style) for status in STATUS_COLUMNS]],
@@ -1796,7 +1825,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			["Metric", "Value"],
 			["Status", compliance_risk_area["status"]],
 			["Compliance Data Found", compliance_risk_area["data_found"]],
-			["Compliance ID", compliance_risk_area["compliance_id"]],
 			["Risk", compliance_risk_area["risk"]],
 		],
 		hAlign="LEFT",
@@ -1808,8 +1836,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		TableStyle(
 			[
 				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-				("BACKGROUND", (1, 4), (1, 4), compliance_risk_color),
-				("TEXTCOLOR", (1, 4), (1, 4), compliance_risk_text_color),
+				("BACKGROUND", (1, 3), (1, 3), compliance_risk_color),
+				("TEXTCOLOR", (1, 3), (1, 3), compliance_risk_text_color),
 				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
 				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
 				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
@@ -1898,34 +1926,34 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
-	pps_boundries_risk_area = report_data["pps_boundries_risk_area"]
-	pps_boundries_risk_table = Table(
+	pps_boundaries_risk_area = report_data["pps_boundaries_risk_area"]
+	pps_boundaries_risk_table = Table(
 		[
 			["Metric", "Value"],
-			["PPS Records Checked", pps_boundries_risk_area["record_count"]],
-			["Records with Boundaries", pps_boundries_risk_area["boundary_record_count"]],
-			["Boundary In Crossings", pps_boundries_risk_area["in_crossings"]],
-			["Boundary Out Crossings", pps_boundries_risk_area["out_crossings"]],
-			["Total Boundary Crossings", pps_boundries_risk_area["total_crossings"]],
-			["Risk", pps_boundries_risk_area["risk"]],
+			["PPS Records Checked", pps_boundaries_risk_area["record_count"]],
+			["Records with Boundaries", pps_boundaries_risk_area["boundary_record_count"]],
+			["Boundary In Crossings", pps_boundaries_risk_area["in_crossings"]],
+			["Boundary Out Crossings", pps_boundaries_risk_area["out_crossings"]],
+			["Total Boundary Crossings", pps_boundaries_risk_area["total_crossings"]],
+			["Risk", pps_boundaries_risk_area["risk"]],
 		],
 		hAlign="LEFT",
 		colWidths=[260, 180],
 	)
-	pps_boundries_risk_color = colors.red
-	pps_boundries_risk_text_color = colors.white
-	if pps_boundries_risk_area["risk"] == "Medium":
-		pps_boundries_risk_color = colors.orange
-		pps_boundries_risk_text_color = colors.black
-	elif pps_boundries_risk_area["risk"] == "Low":
-		pps_boundries_risk_color = colors.yellow
-		pps_boundries_risk_text_color = colors.black
-	pps_boundries_risk_table.setStyle(
+	pps_boundaries_risk_color = colors.red
+	pps_boundaries_risk_text_color = colors.white
+	if pps_boundaries_risk_area["risk"] == "Medium":
+		pps_boundaries_risk_color = colors.orange
+		pps_boundaries_risk_text_color = colors.black
+	elif pps_boundaries_risk_area["risk"] == "Low":
+		pps_boundaries_risk_color = colors.yellow
+		pps_boundaries_risk_text_color = colors.black
+	pps_boundaries_risk_table.setStyle(
 		TableStyle(
 			[
 				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-				("BACKGROUND", (1, 6), (1, 6), pps_boundries_risk_color),
-				("TEXTCOLOR", (1, 6), (1, 6), pps_boundries_risk_text_color),
+				("BACKGROUND", (1, 6), (1, 6), pps_boundaries_risk_color),
+				("TEXTCOLOR", (1, 6), (1, 6), pps_boundaries_risk_text_color),
 				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
 				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
 				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
@@ -2055,7 +2083,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		"Status",
 	)
 
-	document = SimpleDocTemplate(
+	document = SectionPageNumberDocTemplate(
 		str(output_path),
 		pagesize=letter,
 		title=REPORT_TITLE,
@@ -2132,75 +2160,74 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		[
 		PageBreak(),
 		anchored_heading("POAM Risk Area", "poam-items"),
-		Spacer(1, 8),
-		Paragraph("POAM Items", styles["Heading2"]),
-		Spacer(1, 12),
+		Spacer(1, poam_heading_gap),
+		Paragraph("Completion Dates", styles["Heading2"]),
+		Spacer(1, poam_heading_gap),
 		poam_risk_table,
 		]
 	)
 	story.extend(
 		[
-		PageBreak(),
-		anchored_heading("POAM Risk Area", "poam-residual-risk"),
-		Spacer(1, 8),
+		Spacer(1, poam_section_gap),
+		anchor_marker("poam-residual-risk"),
 		Paragraph("Residual Risk", styles["Heading2"]),
-		Spacer(1, 12),
+		Spacer(1, poam_heading_gap),
 		poam_residual_risk_table,
 		]
 	)
 	story.extend(
 		[
-		PageBreak(),
-		anchored_heading("POAM Risk Area", "poam-ongoing-risk"),
-		Spacer(1, 8),
+		Spacer(1, poam_section_gap),
+		anchor_marker("poam-ongoing-risk"),
 		Paragraph("Ongoing Risk", styles["Heading2"]),
-		Spacer(1, 12),
+		Spacer(1, poam_heading_gap),
 		poam_ongoing_risk_table,
-		Spacer(1, 12),
+		Spacer(1, poam_section_gap),
 		Paragraph("Overall POAM Status", styles["Heading2"]),
-		Spacer(1, 8),
+		Spacer(1, poam_heading_gap),
 		overall_poam_status_table,
 		]
 	)
 	story.extend(
 		[
 		PageBreak(),
-		anchored_heading("POAM Risk Area", "poam-ongoing-residual-risk"),
-		Spacer(1, 8),
-		Paragraph("Ongoing Residual Risk", styles["Heading2"]),
-		Spacer(1, 12),
-		poam_ongoing_residual_risk_table,
-		Spacer(1, 12),
+		anchor_marker("poam-ongoing-residual-risk"),
+		KeepTogether([
+			Paragraph("Ongoing Residual Risk", styles["Heading2"]),
+			Spacer(1, poam_heading_gap),
+			poam_ongoing_residual_risk_table,
+		]),
+		Spacer(1, poam_section_gap),
 		Paragraph("Overall POAM Residual Risk", styles["Heading2"]),
-		Spacer(1, 8),
+		Spacer(1, poam_heading_gap),
 		overall_poam_ongoing_residual_risk_table,
 		]
 	)
 	story.extend(
 		[
-		PageBreak(),
-		anchored_heading("POAM Risk Area", "poam-office-organization-ongoing-risk"),
-		Spacer(1, 8),
+		Spacer(1, poam_section_gap),
+		anchor_marker("poam-office-organization-ongoing-risk"),
 		Paragraph("Office Organization Ongoing Risk", styles["Heading2"]),
-		Spacer(1, 12),
+		Spacer(1, poam_heading_gap),
 		poam_office_organization_ongoing_risk_table,
-		Spacer(1, 12),
+		Spacer(1, poam_section_gap),
 		Paragraph("Overall POAM Office Organization Risk", styles["Heading2"]),
-		Spacer(1, 8),
+		Spacer(1, poam_heading_gap),
 		overall_poam_office_organization_risk_table,
 		]
 	)
 	story.extend(
 		[
 		PageBreak(),
-		anchored_heading("POAM Risk Area", "poam-false-positives-risk"),
-		Spacer(1, 8),
-		Paragraph("False Positives Risk", styles["Heading2"]),
-		Spacer(1, 12),
-		poam_false_positives_risk_table,
-		Spacer(1, 12),
+		anchor_marker("poam-false-positives-risk"),
+		KeepTogether([
+			Paragraph("False Positives Risk", styles["Heading2"]),
+			Spacer(1, poam_heading_gap),
+			poam_false_positives_risk_table,
+		]),
+		Spacer(1, poam_section_gap),
 		Paragraph("Overall POAM False Positives Risk", styles["Heading2"]),
-		Spacer(1, 8),
+		Spacer(1, poam_heading_gap),
 		overall_poam_false_positives_risk_table,
 		]
 	)
@@ -2214,30 +2241,20 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		Paragraph("Overall Compliance Risk", styles["Heading2"]),
 		Spacer(1, 8),
 		overall_compliance_risk_table,
-		]
-	)
-	story.extend(
-		[
-		PageBreak(),
-		anchored_heading("Compliance", "compliance-control-score"),
-		Spacer(1, 8),
-		Paragraph("Compliance Control Score", styles["Heading2"]),
 		Spacer(1, 12),
+		anchored_subheading("Compliance Control Score", "compliance-control-score"),
+		Spacer(1, 8),
 		compliance_control_score_risk_table,
 		]
 	)
 	story.extend(
 		[
 		PageBreak(),
-		anchored_heading("Ports/Protocols/Services Boundries", "pps-boundries"),
+		anchored_heading("Ports/Protocols/Services Boundaries", "pps-boundaries"),
 		Spacer(1, 12),
-		pps_boundries_risk_table,
-		]
-	)
-	story.extend(
-		[
-		PageBreak(),
-		anchored_heading("Ports/Protocols/Services Lisitng", "pps-listing"),
+		pps_boundaries_risk_table,
+		Spacer(1, 12),
+		anchored_heading("Ports/Protocols/Services Listing", "pps-listing"),
 		Spacer(1, 12),
 		pps_listing_risk_table,
 		]
@@ -2250,6 +2267,23 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		risk_settings_table,
 		]
 	)
+	measurement_buffer = BytesIO()
+	measurement_document = SectionPageNumberDocTemplate(
+		measurement_buffer,
+		pagesize=letter,
+		title=REPORT_TITLE,
+		author="OpenRMF Professional External API Scripts",
+	)
+	measurement_document.build(copy.deepcopy(story))
+	for row in report_data["table_of_contents_rows"]:
+		page_number = measurement_document.section_page_numbers.get(row["anchor"])
+		if page_number:
+			row["page_number"] = str(page_number)
+	updated_contents_table = build_contents_table(report_data["table_of_contents_rows"])
+	for index, flowable in enumerate(story):
+		if flowable is contents_table:
+			story[index] = updated_contents_table
+			break
 	document.build(story)
 	return True
 
@@ -2321,7 +2355,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	poam_risk_area = report_data["poam_risk_area"]
 	poam_risk_lines = [
 		"POAM Risk Area",
-		"POAM Items",
+		"Completion Dates",
 		"",
 		f"Ongoing POAM Records: {poam_risk_area['total_count']}",
 		f"Scheduled Completion Dates: {poam_risk_area['scheduled_count']}",
@@ -2330,7 +2364,6 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	]
 	poam_residual_risk_area = report_data["poam_residual_risk_area"]
 	poam_residual_risk_lines = [
-		"POAM Risk Area",
 		"Residual Risk",
 		"",
 		f"Total POAM Records: {poam_residual_risk_area['total_count']}",
@@ -2343,7 +2376,6 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	]
 	poam_ongoing_risk_area = report_data["poam_ongoing_risk_area"]
 	poam_ongoing_risk_lines = [
-		"POAM Risk Area",
 		"Ongoing Risk",
 		"",
 		f"Ongoing Items: {poam_ongoing_risk_area['ongoing_count']}",
@@ -2363,7 +2395,6 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		poam_ongoing_risk_lines.append(f"{row['title']} | {row['count']} | {row['risk']}")
 	poam_ongoing_residual_risk_area = report_data["poam_ongoing_residual_risk_area"]
 	poam_ongoing_residual_risk_lines = [
-		"POAM Risk Area",
 		"Ongoing Residual Risk",
 		"",
 		f"Ongoing Items: {poam_ongoing_residual_risk_area['ongoing_count']}",
@@ -2383,7 +2414,6 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		poam_ongoing_residual_risk_lines.append(f"{row['title']} | {row['count']} | {row['risk']}")
 	poam_office_organization_ongoing_risk_area = report_data["poam_office_organization_ongoing_risk_area"]
 	poam_office_organization_ongoing_risk_lines = [
-		"POAM Risk Area",
 		"Office Organization Ongoing Risk",
 		"",
 		f"Ongoing Items: {poam_office_organization_ongoing_risk_area['ongoing_count']}",
@@ -2403,7 +2433,6 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		poam_office_organization_ongoing_risk_lines.append(f"{row['title']} | {row['percentage']} | {row['risk']}")
 	poam_false_positives_risk_area = report_data["poam_false_positives_risk_area"]
 	poam_false_positives_risk_lines = [
-		"POAM Risk Area",
 		"False Positives Risk",
 		"",
 		f"Completed Items: {poam_false_positives_risk_area['completed_count']}",
@@ -2421,13 +2450,24 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	)
 	for row in report_data["overall_poam_false_positives_risk_rows"]:
 		poam_false_positives_risk_lines.append(f"{row['title']} | {row['percentage']} | {row['risk']}")
+	poam_risk_area_lines = []
+	for section_lines in [
+		poam_risk_lines,
+		poam_residual_risk_lines,
+		poam_ongoing_risk_lines,
+		poam_ongoing_residual_risk_lines,
+		poam_office_organization_ongoing_risk_lines,
+		poam_false_positives_risk_lines,
+	]:
+		if poam_risk_area_lines:
+			poam_risk_area_lines.append("")
+		poam_risk_area_lines.extend(section_lines)
 	compliance_risk_area = report_data["compliance_risk_area"]
 	compliance_risk_lines = [
 		"Compliance",
 		"",
 		f"Status: {compliance_risk_area['status']}",
 		f"Compliance Data Found: {compliance_risk_area['data_found']}",
-		f"Compliance ID: {compliance_risk_area['compliance_id']}",
 		f"Risk: {compliance_risk_area['risk']}",
 	]
 	compliance_risk_lines.extend(
@@ -2441,8 +2481,8 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	for row in report_data["overall_compliance_risk_rows"]:
 		compliance_risk_lines.append(f"{row['title']} | {row['percentage']} | {row['risk']}")
 	compliance_control_score_risk_area = report_data["compliance_control_score_risk_area"]
-	compliance_control_score_risk_lines = [
-		"Compliance",
+	compliance_risk_lines.extend([
+		"",
 		"Compliance Control Score",
 		"",
 		f"Status: {compliance_control_score_risk_area['status']}",
@@ -2450,17 +2490,17 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		f"Number of Controls with no Compliance Records: {compliance_control_score_risk_area['both_zero_count']}",
 		f"Percentage of Controls with no Compliance Records: {compliance_control_score_risk_area['both_zero_percent']}",
 		f"Risk: {compliance_control_score_risk_area['risk']}",
-	]
-	pps_boundries_risk_area = report_data["pps_boundries_risk_area"]
-	pps_boundries_risk_lines = [
+	])
+	pps_boundaries_risk_area = report_data["pps_boundaries_risk_area"]
+	pps_boundaries_risk_lines = [
 		"Ports/Protocols/Services Boundries",
 		"",
-		f"PPS Records Checked: {pps_boundries_risk_area['record_count']}",
-		f"Records with Boundaries: {pps_boundries_risk_area['boundary_record_count']}",
-		f"Boundary In Crossings: {pps_boundries_risk_area['in_crossings']}",
-		f"Boundary Out Crossings: {pps_boundries_risk_area['out_crossings']}",
-		f"Total Boundary Crossings: {pps_boundries_risk_area['total_crossings']}",
-		f"Risk: {pps_boundries_risk_area['risk']}",
+		f"PPS Records Checked: {pps_boundaries_risk_area['record_count']}",
+		f"Records with Boundaries: {pps_boundaries_risk_area['boundary_record_count']}",
+		f"Boundary In Crossings: {pps_boundaries_risk_area['in_crossings']}",
+		f"Boundary Out Crossings: {pps_boundaries_risk_area['out_crossings']}",
+		f"Total Boundary Crossings: {pps_boundaries_risk_area['total_crossings']}",
+		f"Risk: {pps_boundaries_risk_area['risk']}",
 	]
 	pps_listing_risk_area = report_data["pps_listing_risk_area"]
 	pps_listing_risk_lines = [
@@ -2470,6 +2510,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		f"Approved PPS Items: {pps_listing_risk_area['approved_count']}",
 		f"Risk: {pps_listing_risk_area['risk']}",
 	]
+	pps_boundaries_risk_lines.extend(["", *pps_listing_risk_lines])
 	risk_settings_lines = ["Risk Settings", ""]
 	risk_settings_lines.extend([f"{row['key']}: {row['value']}" for row in report_data["risk_settings_rows"]])
 	contents_lines = ["Table of Contents", "Page Title                                      Page Number", "--------------------------------------------  -----------"]
@@ -2494,16 +2535,9 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		make_text_page(cat_status_lines),
 		make_text_page(checklist_missing_data_risk_lines),
 		make_text_page(patch_vulnerability_risk_lines),
-		make_text_page(poam_risk_lines),
-		make_text_page(poam_residual_risk_lines),
-		make_text_page(poam_ongoing_risk_lines),
-		make_text_page(poam_ongoing_residual_risk_lines),
-		make_text_page(poam_office_organization_ongoing_risk_lines),
-		make_text_page(poam_false_positives_risk_lines),
+		*[make_text_page(poam_risk_area_lines[index:index + 36]) for index in range(0, len(poam_risk_area_lines), 36)],
 		make_text_page(compliance_risk_lines),
-		make_text_page(compliance_control_score_risk_lines),
-		make_text_page(pps_boundries_risk_lines),
-		make_text_page(pps_listing_risk_lines),
+		make_text_page(pps_boundaries_risk_lines),
 		*[make_text_page(risk_settings_lines[index:index + 36]) for index in range(0, len(risk_settings_lines), 36)],
 	]
 	objects = [
