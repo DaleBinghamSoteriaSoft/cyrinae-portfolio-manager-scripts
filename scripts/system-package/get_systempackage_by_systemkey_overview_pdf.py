@@ -28,6 +28,7 @@ import subprocess
 import sys
 import textwrap
 from datetime import datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 
 REQUIRED_ARGUMENT_COUNT = 5
@@ -38,6 +39,16 @@ SOFTWARE_SCRIPT_NAME = "get_systempackage_by_systemkey_software_json.py"
 PPSM_SCRIPT_NAME = "get_systempackage_by_systemkey_ppsm_json.py"
 POAM_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
 REPORT_TITLE = "OpenRMF Professional System Package Overview"
+REPORT_SECTIONS = [
+    {"title": "Overview", "anchor": "overview", "page_number": "2"},
+    {"title": "Checklist Findings by CAT", "anchor": "checklist-findings-by-cat", "page_number": "3"},
+    {"title": "Checklist Scores and Status", "anchor": "checklist-scores-and-status", "page_number": "4"},
+    {"title": "Patch", "anchor": "patch", "page_number": "5"},
+    {"title": "Hardware", "anchor": "hardware", "page_number": "7"},
+    {"title": "Software", "anchor": "software", "page_number": "8"},
+    {"title": "Ports-Protocols-Services", "anchor": "ports-protocols-services", "page_number": "9"},
+    {"title": "POAM", "anchor": "poam", "page_number": "10"},
+]
 
 
 def get_project_python_executable() -> str:
@@ -290,6 +301,13 @@ def build_patch_rows(system_package: dict) -> list[dict[str, str]]:
         {"metric": "Medium Open", "value": safe_text(patch_score.get("totalMediumOpen", 0))},
         {"metric": "Low Open", "value": safe_text(patch_score.get("totalLowOpen", 0))},
         {"metric": "Version", "value": safe_text(patch_score.get("version", 0))},
+    ]
+
+
+def build_table_of_contents_rows() -> list[dict[str, str]]:
+    return [
+        {"title": section["title"], "anchor": section["anchor"], "page_number": section["page_number"]}
+        for section in REPORT_SECTIONS
     ]
 
 
@@ -858,6 +876,7 @@ def build_report_data(system_package: dict, patchdata=None, hardwaredata=None, s
         "category_total_score_rows": build_category_total_score_rows(system_package),
         "total_status_rows": build_total_status_rows(system_package),
         "patch_rows": build_patch_rows(system_package),
+        "table_of_contents_rows": build_table_of_contents_rows(),
         "patch_vulnerability_rows": build_patch_vulnerability_rows(patchdata),
         "hardware_rows": build_hardware_rows(hardwaredata),
         "software_rows": build_software_rows(softwaredata),
@@ -879,10 +898,24 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     except ImportError:
         return False
 
+    class SectionPageNumberDocTemplate(SimpleDocTemplate):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.section_page_numbers: dict[str, int] = {}
+
+        def afterFlowable(self, flowable) -> None:
+            anchor = getattr(flowable, "_toc_anchor", None)
+            if anchor and anchor not in self.section_page_numbers:
+                self.section_page_numbers[anchor] = self.page
+
     styles = getSampleStyleSheet()
     table_header_style = styles["BodyText"].clone("CenteredTableHeader")
     table_header_style.alignment = 1
     table_header_style.fontName = "Helvetica-Bold"
+    contents_link_style = styles["BodyText"].clone("ContentsLink")
+    contents_link_style.fontSize = 9
+    contents_link_style.leading = 11
+    contents_link_style.textColor = colors.blue
     bright_yellow = colors.Color(1.0, 0.95, 0.05)
     cat_row_backgrounds = [colors.lightcoral, colors.orange, bright_yellow, colors.white]
     status_row_backgrounds = [colors.white, colors.lightgreen, colors.lightgrey, colors.grey]
@@ -905,6 +938,14 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
         if value:
             return Paragraph('<font color="green">✓</font>', styles["BodyText"])
         return Paragraph('<font color="red">✕</font>', styles["BodyText"])
+
+    def anchored_heading(title: str, anchor: str):
+        paragraph = Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>{html.escape(title)}', styles["Heading1"])
+        paragraph._toc_anchor = anchor
+        return paragraph
+
+    def contents_link(title: str, anchor: str):
+        return Paragraph(f'<a href="#{html.escape(anchor, quote=True)}" color="blue">{html.escape(title)}</a>', contents_link_style)
 
     def numeric_value(value) -> float:
         return max(numeric_sort_value(safe_text(value)), 0.0)
@@ -963,12 +1004,36 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
         drawing.add(String(382, legend_y, "Open follows CAT colors", fontSize=6))
         return drawing
 
-    document = SimpleDocTemplate(
-        str(output_path),
-        pagesize=letter,
-        title=REPORT_TITLE,
-        author="OpenRMF Professional External API Scripts",
-    )
+    def build_contents_table():
+        contents_rows = report_data["table_of_contents_rows"]
+        contents_table_rows = [[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)]]
+        contents_table_rows.extend(
+            [
+                contents_link(row["title"], row["anchor"]),
+                row["page_number"],
+            ]
+            for row in contents_rows
+        )
+        table = Table(contents_table_rows, hAlign="LEFT", colWidths=[380, 90])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ]
+            )
+        )
+        return table
+
+    document_options = {
+        "pagesize": letter,
+        "title": REPORT_TITLE,
+        "author": "OpenRMF Professional External API Scripts",
+    }
+    contents_table = build_contents_table()
     story = [
         Paragraph(REPORT_TITLE, styles["Title"]),
         Spacer(1, 24),
@@ -977,8 +1042,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
         Paragraph(f"Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
         Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
         Paragraph(f"Source Script: {SOURCE_SCRIPT_NAME}", styles["Normal"]),
+        Spacer(1, 18),
+        Paragraph("Table of Contents", styles["Heading2"]),
+        Spacer(1, 8),
+        contents_table,
         PageBreak(),
-        Paragraph("Overview", styles["Heading1"]),
+        anchored_heading("Overview", "overview"),
         Spacer(1, 12),
         Paragraph(f"<b>Title:</b> {html.escape(report_data['title'])}", styles["Normal"]),
         Spacer(1, 10),
@@ -1126,7 +1195,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     story.extend(
         [
             PageBreak(),
-            Paragraph("Checklist", styles["Heading1"]),
+            anchored_heading("Checklist", "checklist-findings-by-cat"),
             Spacer(1, 12),
             Paragraph("Checklist Findings by CAT", styles["Heading2"]),
             Spacer(1, 8),
@@ -1138,7 +1207,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     story.extend(
         [
             PageBreak(),
-            Paragraph("Checklist", styles["Heading1"]),
+            anchored_heading("Checklist", "checklist-scores-and-status"),
             Spacer(1, 12),
             Paragraph("Category Total Scores", styles["Heading2"]),
             Spacer(1, 8),
@@ -1156,7 +1225,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     story.extend(
         [
             PageBreak(),
-            Paragraph("Patch", styles["Heading1"]),
+            anchored_heading("Patch", "patch"),
             Spacer(1, 12),
             Paragraph("Patch Vulnerability Totals", styles["Heading2"]),
             Spacer(1, 8),
@@ -1227,7 +1296,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     story.extend(
         [
             PageBreak(),
-            Paragraph("Hardware", styles["Heading1"]),
+            anchored_heading("Hardware", "hardware"),
             Spacer(1, 12),
             Paragraph("Hardware Inventory", styles["Heading2"]),
             Spacer(1, 8),
@@ -1270,7 +1339,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     story.extend(
         [
             PageBreak(),
-            Paragraph("Software", styles["Heading1"]),
+            anchored_heading("Software", "software"),
             Spacer(1, 12),
             Paragraph("Software Inventory by Device", styles["Heading2"]),
             Spacer(1, 8),
@@ -1314,7 +1383,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     story.extend(
         [
             PageBreak(),
-            Paragraph("Ports-Protocols-Services", styles["Heading1"]),
+            anchored_heading("Ports-Protocols-Services", "ports-protocols-services"),
             Spacer(1, 12),
             Paragraph("Ports, Protocols, and Services by Boundary", styles["Heading2"]),
             Spacer(1, 8),
@@ -1381,7 +1450,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     story.extend(
         [
             PageBreak(),
-            Paragraph("POAM", styles["Heading1"]),
+            anchored_heading("POAM", "poam"),
             Spacer(1, 12),
             Paragraph("Raw Severity Numbers", styles["Heading2"]),
             Spacer(1, 8),
@@ -1407,6 +1476,18 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
         ]
     )
     story[-1].setStyle(poam_table_style(report_data["poam_resulting_risk_rows"], "risk", poam_risk_backgrounds))
+    measurement_document = SectionPageNumberDocTemplate(BytesIO(), **document_options)
+    measurement_document.build(list(story))
+    for row in report_data["table_of_contents_rows"]:
+        page_number = measurement_document.section_page_numbers.get(row["anchor"])
+        if page_number:
+            row["page_number"] = safe_text(page_number)
+    updated_contents_table = build_contents_table()
+    for story_index, flowable in enumerate(story):
+        if flowable is contents_table:
+            story[story_index] = updated_contents_table
+            break
+    document = SectionPageNumberDocTemplate(str(output_path), **document_options)
     document.build(story)
     return True
 
@@ -1485,6 +1566,10 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
         f"System Key: {report_data['system_key']}",
         f"Source Script: {SOURCE_SCRIPT_NAME}",
     ]
+    contents_lines = ["Table of Contents", "Page Title                                      Page Number", "--------------------------------------------  -----------"]
+    contents_lines.extend([f"{row['title']:<44}  {row['page_number']:>11}" for row in report_data["table_of_contents_rows"]])
+    title_lines.extend(["", *contents_lines])
+
     detail_lines = ["Overview", "", f"Title: {report_data['title']}", "", "Description:"]
     detail_lines.extend(textwrap.wrap(report_data["description"], width=78) or [""])
     detail_lines.extend(

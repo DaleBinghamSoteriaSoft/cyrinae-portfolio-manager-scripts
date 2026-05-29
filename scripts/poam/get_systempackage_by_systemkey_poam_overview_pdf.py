@@ -56,6 +56,21 @@ RAW_SEVERITY_MANUAL_TYPE_LABEL = "Manual/Deleted"
 RAW_SEVERITY_FIELD_KEYS = ["rawSeverity", "rawSeverityString", "rawSeverityValue"]
 RAW_SEVERITY_BLANK_LABEL = "Blank"
 RAW_SEVERITY_COLUMNS = ["Critical", "High", "Medium", "Low"]
+REPORT_SECTIONS = [
+    {"title": "POAM Status", "anchor": "poam-status", "page_number": "2"},
+    {"title": "POAM Raw Severity by POAM Item Type", "anchor": "poam-raw-severity-by-poam-item-type", "page_number": "3"},
+    {"title": "Total by POAM Residual Risk Mitigations by POAM Type", "anchor": "poam-residual-risk-mitigations-by-type", "page_number": "4"},
+    {"title": "Scheduled Completion by POAM Status and Type", "anchor": "scheduled-completion-by-poam-status-and-type", "page_number": "5"},
+    {"title": "False Positive by POAM Status and Type", "anchor": "false-positive-by-poam-status-and-type", "page_number": "6"},
+]
+
+
+def build_table_of_contents_rows() -> list[dict[str, str]]:
+    return [
+        {"title": section["title"], "anchor": section["anchor"], "page_number": section["page_number"]}
+        for section in REPORT_SECTIONS
+    ]
+
 
 def get_project_python_executable() -> str:
     project_python = Path(__file__).resolve().parents[1] / ".env" / "bin" / "python"
@@ -502,6 +517,7 @@ def build_report_data(poamdata, system_key: str) -> dict:
         "false_positive_type_status_rows": build_false_positive_type_status_rows(records),
         "raw_severity_item_type_rows": build_raw_severity_item_type_rows(records),
         "type_residual_risk_mitigations_rows": build_type_residual_risk_mitigations_rows(records),
+        "table_of_contents_rows": build_table_of_contents_rows(),
         "poam_count": len(records),
         "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
     }
@@ -516,12 +532,57 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     except ImportError:
         return False
 
+    class SectionPageNumberDocTemplate(SimpleDocTemplate):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.section_page_numbers: dict[str, int] = {}
+
+        def afterFlowable(self, flowable) -> None:
+            anchor = getattr(flowable, "_toc_anchor", None)
+            if anchor and anchor not in self.section_page_numbers:
+                self.section_page_numbers[anchor] = self.page
+
     styles = getSampleStyleSheet()
     table_header_style = styles["BodyText"].clone("CenteredTableHeader")
     table_header_style.alignment = 1
     table_header_style.fontName = "Helvetica-Bold"
+    contents_link_style = styles["BodyText"].clone("ContentsLink")
+    contents_link_style.fontSize = 9
+    contents_link_style.leading = 11
+    contents_link_style.textColor = colors.blue
     status_column_backgrounds = [colors.lightblue, colors.lightgreen, colors.lightgrey]
     risk_column_backgrounds = [colors.red, colors.salmon, colors.white, colors.yellow, colors.lightgreen]
+
+    def anchored_heading(title: str, anchor: str):
+        paragraph = Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>{html.escape(title)}', styles["Heading1"])
+        paragraph._toc_anchor = anchor
+        return paragraph
+
+    def contents_link(title: str, anchor: str):
+        return Paragraph(f'<a href="#{html.escape(anchor, quote=True)}" color="blue">{html.escape(title)}</a>', contents_link_style)
+
+    def build_contents_table():
+        contents_table_rows = [[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)]]
+        contents_table_rows.extend(
+            [
+                contents_link(row["title"], row["anchor"]),
+                row["page_number"],
+            ]
+            for row in report_data["table_of_contents_rows"]
+        )
+        table = Table(contents_table_rows, hAlign="LEFT", colWidths=[380, 90])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ]
+            )
+        )
+        return table
 
     status_table = Table(
         [
@@ -840,12 +901,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         "POAM Residual Risk Mitigations Totals by POAM Type 2D Histogram",
     )
 
-    document = SimpleDocTemplate(
-        str(output_path),
-        pagesize=letter,
-        title=REPORT_TITLE,
-        author="OpenRMF Professional External API Scripts",
-    )
+    document_options = {
+        "pagesize": letter,
+        "title": REPORT_TITLE,
+        "author": "OpenRMF Professional External API Scripts",
+    }
+    contents_table = build_contents_table()
     story = [
         Paragraph(REPORT_TITLE, styles["Title"]),
         Spacer(1, 24),
@@ -855,8 +916,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
         Paragraph(f"System Title: {html.escape(report_data['system_title'])}", styles["Normal"]),
         Paragraph(f"Source Script: {SOURCE_SCRIPT_NAME}", styles["Normal"]),
+        Spacer(1, 18),
+        Paragraph("Table of Contents", styles["Heading2"]),
+        Spacer(1, 8),
+        contents_table,
         PageBreak(),
-        Paragraph("POAM Status", styles["Heading1"]),
+        anchored_heading("POAM Status", "poam-status"),
         Spacer(1, 12),
         Paragraph("Status Totals", styles["Heading2"]),
         Spacer(1, 8),
@@ -871,7 +936,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     story.extend(
         [
             PageBreak(),
-            Paragraph("POAM Raw Severity by POAM Item Type", styles["Heading1"]),
+            anchored_heading("POAM Raw Severity by POAM Item Type", "poam-raw-severity-by-poam-item-type"),
             Spacer(1, 12),
             raw_severity_item_type_table,
             Spacer(1, 18),
@@ -886,7 +951,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     story.extend(
         [
             PageBreak(),
-            Paragraph("Total by POAM Residual Risk Mitigations by POAM Type", styles["Heading1"]),
+            anchored_heading("Total by POAM Residual Risk Mitigations by POAM Type", "poam-residual-risk-mitigations-by-type"),
             Spacer(1, 12),
             residual_risk_mitigations_type_table,
             Spacer(1, 18),
@@ -901,7 +966,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     story.extend(
         [
             PageBreak(),
-            Paragraph("Scheduled Completion by POAM Status and Type", styles["Heading1"]),
+            anchored_heading("Scheduled Completion by POAM Status and Type", "scheduled-completion-by-poam-status-and-type"),
             Spacer(1, 12),
             Paragraph("Count of items by POAM status and POAM type that have a scheduled completion date.", styles["Normal"]),
             Spacer(1, 8),
@@ -917,13 +982,25 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     story.extend(
         [
             PageBreak(),
-            Paragraph("False Positive by POAM Status and Type", styles["Heading1"]),
+            anchored_heading("False Positive by POAM Status and Type", "false-positive-by-poam-status-and-type"),
             Spacer(1, 12),
             Paragraph('Count of items marked true for "falsePositive" by POAM status and POAM type.', styles["Normal"]),
             Spacer(1, 12),
             false_positive_type_status_table,
         ]
     )
+    measurement_document = SectionPageNumberDocTemplate(BytesIO(), **document_options)
+    measurement_document.build(list(story))
+    for row in report_data["table_of_contents_rows"]:
+        page_number = measurement_document.section_page_numbers.get(row["anchor"])
+        if page_number:
+            row["page_number"] = safe_text(page_number)
+    updated_contents_table = build_contents_table()
+    for story_index, flowable in enumerate(story):
+        if flowable is contents_table:
+            story[story_index] = updated_contents_table
+            break
+    document = SectionPageNumberDocTemplate(str(output_path), **document_options)
     document.build(story)
     return True
 
@@ -944,6 +1021,8 @@ def make_text_page(lines: list[str], font_size: int = 12) -> str:
 
 def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
     status_totals = report_data["status_totals"]
+    contents_lines = ["Table of Contents", "Page Title                                      Page Number", "--------------------------------------------  -----------"]
+    contents_lines.extend([f"{row['title']:<44}  {row['page_number']:>11}" for row in report_data["table_of_contents_rows"]])
     status_lines = [
         "POAM Status",
         "",
@@ -1039,6 +1118,8 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
                 f"System Key: {report_data['system_key']}",
                 f"System Title: {report_data['system_title']}",
                 f"Source Script: {SOURCE_SCRIPT_NAME}",
+                "",
+                *contents_lines,
             ],
             font_size=14,
         ),
