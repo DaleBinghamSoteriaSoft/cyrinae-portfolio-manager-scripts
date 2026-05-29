@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 REQUIRED_ARGUMENT_COUNT = 5
@@ -35,6 +36,17 @@ SOURCE_TYPE_DEFINITIONS = [
     ("inheritedControlId", "Inherited"),
     ("vulnScanId", "Other Tech"),
 ]
+REPORT_SECTIONS = [
+    {"title": "POAM Details", "anchor": "poam-details", "page_number": "2"},
+    {"title": "POAM Completion Dates Overdue", "anchor": "poam-completion-dates-overdue", "page_number": "3"},
+]
+
+
+def build_table_of_contents_rows() -> list[dict[str, str]]:
+    return [
+        {"title": section["title"], "anchor": section["anchor"], "page_number": section["page_number"]}
+        for section in REPORT_SECTIONS
+    ]
 
 
 def get_project_python_executable() -> str:
@@ -392,6 +404,7 @@ def build_report_data(poamdata, system_key: str) -> dict:
         "all_items": build_all_items(records),
         "overdue_completion_items": build_overdue_completion_items(records),
         "items_by_status": build_items_by_status(records),
+        "table_of_contents_rows": build_table_of_contents_rows(),
         "poam_count": len(records),
         "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
     }
@@ -409,10 +422,21 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     except ImportError:
         return False
 
+    class SectionPageNumberDocTemplate(SimpleDocTemplate):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.section_page_numbers: dict[str, int] = {}
+
+        def afterFlowable(self, flowable) -> None:
+            anchor = getattr(flowable, "_toc_anchor", None)
+            if anchor and anchor not in self.section_page_numbers:
+                self.section_page_numbers[anchor] = self.page
+
     styles = getSampleStyleSheet()
     centered_style = ParagraphStyle("Centered", parent=styles["BodyText"], alignment=TA_CENTER)
     table_cell_style = ParagraphStyle("TableCell", parent=styles["BodyText"], fontSize=7, leading=8)
     table_header_style = ParagraphStyle("TableHeader", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=7, leading=8)
+    contents_link_style = ParagraphStyle("ContentsLink", parent=styles["BodyText"], fontSize=9, leading=11, textColor=colors.blue)
     tile_style = ParagraphStyle("Tile", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=12, leading=16)
     severity_colors = {
         "Critical": colors.HexColor("#800000"),
@@ -447,6 +471,42 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         "Statement": colors.black,
         "Manual/Deleted": colors.black,
     }
+
+    def anchored_heading(title: str, anchor: str):
+        paragraph = Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>{html.escape(title)}', styles["Heading1"])
+        paragraph._toc_anchor = anchor
+        return paragraph
+
+    def anchor_marker(anchor: str):
+        paragraph = Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>', styles["Normal"])
+        paragraph._toc_anchor = anchor
+        return paragraph
+
+    def contents_link(title: str, anchor: str):
+        return Paragraph(f'<a href="#{html.escape(anchor, quote=True)}" color="blue">{html.escape(title)}</a>', contents_link_style)
+
+    def build_contents_table():
+        contents_table_rows = [[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)]]
+        contents_table_rows.extend(
+            [
+                contents_link(row["title"], row["anchor"]),
+                row["page_number"],
+            ]
+            for row in report_data["table_of_contents_rows"]
+        )
+        table = Table(contents_table_rows, hAlign="CENTER", colWidths=[430, 90])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ]
+            )
+        )
+        return table
 
     def build_status_boxes() -> Table:
         totals = report_data["status_totals"]
@@ -732,16 +792,16 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         )
         return table
 
-    document = SimpleDocTemplate(
-        str(output_path),
-        pagesize=landscape(letter),
-        title=REPORT_TITLE,
-        author="OpenRMF Professional External API Scripts",
-        leftMargin=36,
-        rightMargin=36,
-        topMargin=36,
-        bottomMargin=36,
-    )
+    document_options = {
+        "pagesize": landscape(letter),
+        "title": REPORT_TITLE,
+        "author": "OpenRMF Professional External API Scripts",
+        "leftMargin": 36,
+        "rightMargin": 36,
+        "topMargin": 36,
+        "bottomMargin": 36,
+    }
+    contents_table = build_contents_table()
     story = [
         Paragraph(REPORT_TITLE, styles["Title"]),
         Spacer(1, 12),
@@ -749,8 +809,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Paragraph(f"System Key: {html.escape(report_data['system_key'])}", centered_style),
         Paragraph(f"System Title: {html.escape(report_data['system_title'])}", centered_style),
         Paragraph(f"Source Script: {SOURCE_SCRIPT_NAME}", centered_style),
+        Spacer(1, 18),
+        Paragraph("Table of Contents", styles["Heading2"]),
+        Spacer(1, 8),
+        contents_table,
         PageBreak(),
-        Paragraph("POAM Details", styles["Heading1"]),
+        anchored_heading("POAM Details", "poam-details"),
         Spacer(1, 8),
         build_severity_boxes(),
         Spacer(1, 18),
@@ -758,8 +822,9 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Spacer(1, 18),
         build_type_pie_charts(),
         PageBreak(),
-        Paragraph("POAM Details", styles["Heading1"]),
+        anchored_heading("POAM Details", "poam-source-details"),
         Spacer(1, 8),
+        anchor_marker("poam-completion-dates-overdue"),
         overdue_page_anchor(1),
         build_source_details_page(),
     ]
@@ -773,6 +838,18 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
                 *build_items_preview_panel(page_number),
             ]
         )
+    measurement_document = SectionPageNumberDocTemplate(BytesIO(), **document_options)
+    measurement_document.build(list(story))
+    for row in report_data["table_of_contents_rows"]:
+        page_number = measurement_document.section_page_numbers.get(row["anchor"])
+        if page_number:
+            row["page_number"] = safe_text(page_number)
+    updated_contents_table = build_contents_table()
+    for story_index, flowable in enumerate(story):
+        if flowable is contents_table:
+            story[story_index] = updated_contents_table
+            break
+    document = SectionPageNumberDocTemplate(str(output_path), **document_options)
     document.build(story)
     return True
 
@@ -794,6 +871,8 @@ def make_text_page(lines: list[str], font_size: int = 10) -> str:
 def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
     severity_totals = report_data["ongoing_severity_totals"]
     status_totals = report_data["status_totals"]
+    contents_lines = ["Table of Contents", "Page Title                                      Page Number", "--------------------------------------------  -----------"]
+    contents_lines.extend([f"{row['title']:<44}  {row['page_number']:>11}" for row in report_data["table_of_contents_rows"]])
     cover_lines = [
         REPORT_TITLE,
         "",
@@ -801,6 +880,8 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         f"System Key: {report_data['system_key']}",
         f"System Title: {report_data['system_title']}",
         f"Source Script: {SOURCE_SCRIPT_NAME}",
+        "",
+        *contents_lines,
     ]
     lines = [
         "",
