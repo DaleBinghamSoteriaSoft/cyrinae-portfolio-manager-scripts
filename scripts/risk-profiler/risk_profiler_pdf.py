@@ -23,6 +23,8 @@ from risk_settings import RISK_SETTINGS
 REQUIRED_ARGUMENT_COUNT = 5
 REPORT_TITLE = "OpenRMF Professional Risk Profiler"
 SYSTEM_PACKAGE_SCRIPT_NAME = "get_systempackage_by_systemkey_json.py"
+READINESS_SCORE_SCRIPT_NAME = "get_systempackage_by_systemkey_readinessscore_json.py"
+READINESS_SETTINGS_SCRIPT_NAME = "get_systempackage_by_systemkey_readinesssettings_json.py"
 POAM_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
 CHECKLIST_MISSINGDATA_SCRIPT_NAME = "get_systempackage_by_systemkey_missingdata_json.py"
 COMPLIANCE_SCRIPT_NAME = "get_systempackage_by_systemkey_compliance_json.py"
@@ -34,6 +36,7 @@ STATUS_COLUMNS = ["Open", "Not a Finding", "Not Applicable", "Not Reviewed"]
 REPORT_SECTIONS = [
 	{"title": "Checklist Risk", "anchor": "checklist-risk"},
 	{"title": "Checklist Missing Data", "anchor": "checklist-missing-data"},
+	{"title": "Cyber Readiness Score", "anchor": "cyber-readiness-score"},
 	{"title": "Patch Vulnerability Risk", "anchor": "patch-vulnerability-risk"},
 	{"title": "POAM Risk Area", "anchor": "poam-items"},
 	{"title": "POAM False Positives Risk", "anchor": "poam-false-positives-risk"},
@@ -277,6 +280,217 @@ def percentage_value(record: dict, keys: list[str]) -> float | None:
 		return float(str(value).strip().rstrip("%"))
 	except (TypeError, ValueError):
 		return None
+
+
+def readiness_value(data, keys: list[str]) -> str:
+	if isinstance(data, dict):
+		for key in keys:
+			value = data.get(key)
+			if value not in (None, ""):
+				return safe_text(value).strip()
+		for value in data.values():
+			found_value = readiness_value(value, keys)
+			if found_value:
+				return found_value
+	elif isinstance(data, list):
+		for item in data:
+			found_value = readiness_value(item, keys)
+			if found_value:
+				return found_value
+	return ""
+
+
+def readiness_score_number(value: str) -> float | None:
+	try:
+		return float(safe_text(value).strip())
+	except ValueError:
+		return None
+
+
+READINESS_GRADE_PREFIXES = ["Excellent", "Good", "Poor", "Fail"]
+
+
+def readiness_settings_record(data) -> dict:
+	if isinstance(data, dict):
+		if any(f"grade{prefix}Label" in data for prefix in READINESS_GRADE_PREFIXES):
+			return data
+		for value in data.values():
+			found_record = readiness_settings_record(value)
+			if found_record:
+				return found_record
+	elif isinstance(data, list):
+		for item in data:
+			found_record = readiness_settings_record(item)
+			if found_record:
+				return found_record
+	return {}
+
+
+def readiness_setting_number(settings: dict, key: str) -> float | None:
+	try:
+		value = settings.get(key)
+		if value in (None, ""):
+			return None
+		return float(safe_text(value).strip())
+	except (TypeError, ValueError):
+		return None
+
+
+def readiness_setting_value(settings: dict, key: str, null_display: str = "Not Used") -> str:
+	if key not in settings:
+		return "Missing Data"
+	value = settings.get(key)
+	if value is None:
+		return null_display
+	if value == "":
+		return "Missing Data"
+	return safe_text(value)
+
+
+def readiness_grade_label(settings: dict, prefix: str, default_label: str) -> str:
+	label = safe_text(settings.get(f"grade{prefix}Label")).strip()
+	return label or default_label
+
+
+def readiness_good_label(readiness_settings_data=None) -> str:
+	settings = readiness_settings_record(readiness_settings_data)
+	return readiness_grade_label(settings, "Good", "Good")
+
+
+def readiness_score_label(score: float, readiness_settings_data=None) -> str:
+	settings = readiness_settings_record(readiness_settings_data)
+	if settings:
+		for prefix in READINESS_GRADE_PREFIXES:
+			minimum_score = readiness_setting_number(settings, f"grade{prefix}MinimumScore")
+			maximum_score = readiness_setting_number(settings, f"grade{prefix}MaxScore")
+			if minimum_score is None and maximum_score is None:
+				continue
+			if minimum_score is not None and score < minimum_score:
+				continue
+			if maximum_score is not None and score > maximum_score:
+				continue
+			return readiness_grade_label(settings, prefix, prefix)
+	if score < 0:
+		return ""
+	if score <= 4:
+		return "Excellent"
+	if score <= 5.5:
+		return "Good"
+	if score <= 10:
+		return "Poor"
+	if score <= 999999999999:
+		return "Fail"
+	return "Fail"
+
+
+def readiness_weight_setting(settings: dict, key: str, readiness_settings_data) -> str:
+	value = readiness_setting_value(settings, key)
+	if value in {"Missing Data", "Not Used"}:
+		return value
+	number_value = readiness_setting_number(settings, key)
+	if number_value is None:
+		return value
+	label = readiness_score_label(number_value, readiness_settings_data)
+	return f"{label}({value})" if label else value
+
+
+def build_cyber_readiness_settings_rows(readiness_settings_data) -> list[dict[str, str]]:
+	settings = readiness_settings_record(readiness_settings_data)
+	if not settings:
+		return []
+	rows = []
+	for label, key in [
+		("Checklist High Weight", "complianceChecklistWeightHigh"),
+		("Checklist Medium Weight", "complianceChecklistWeightMedium"),
+		("Checklist Low Weight", "complianceChecklistWeightLow"),
+	]:
+		rows.append({"category": label, "setting": readiness_weight_setting(settings, key, readiness_settings_data)})
+	for label, key in [
+		("Patch Critical Weight", "patchVulnerabilityWeightCritical"),
+		("Patch High Weight", "patchVulnerabilityWeightHigh"),
+		("Patch Medium Weight", "patchVulnerabilityWeightMedium"),
+		("Patch Low Weight", "patchVulnerabilityWeightLow"),
+	]:
+		rows.append({"category": label, "setting": readiness_weight_setting(settings, key, readiness_settings_data)})
+	return rows
+
+
+def readiness_open_count(readiness_score_data, keys: list[str]) -> int:
+	value = readiness_value(readiness_score_data, keys)
+	return numeric_count(value)
+
+
+def readiness_open_count_or_none(readiness_score_data, keys: list[str]) -> int | None:
+	value = readiness_value(readiness_score_data, keys)
+	if value in (None, ""):
+		return None
+	return numeric_count(value)
+
+
+def readiness_excellent_max_critical_allowed(readiness_settings_data) -> int | None:
+	settings = readiness_settings_record(readiness_settings_data)
+	value = readiness_setting_number(settings, "gradeExcellentMaxCriticalAllowed") if settings else None
+	if value is None:
+		return None
+	return int(value)
+
+
+def readiness_label_with_critical_allowance(readiness: str, score: float, readiness_score_data, readiness_settings_data, system_package: dict) -> str:
+	label = readiness_score_label(score, readiness_settings_data)
+	excellent_label = readiness_grade_label(readiness_settings_record(readiness_settings_data), "Excellent", "Excellent")
+	if label != excellent_label:
+		return label
+	allowed_count = readiness_excellent_max_critical_allowed(readiness_settings_data)
+	if allowed_count is None:
+		return patch_readiness_label(score, system_package) if readiness == "Patch" else label
+	if readiness == "Checklist":
+		score_data = system_package.get("score", {}) if isinstance(system_package, dict) else {}
+		if not isinstance(score_data, dict):
+			score_data = {}
+		cat_1_open = readiness_open_count_or_none(readiness_score_data, ["totalChecklistCat1Open"])
+		if cat_1_open is None:
+			cat_1_open = numeric_count(score_value(score_data, "totalCat1Open"))
+		if cat_1_open > allowed_count:
+			return readiness_good_label(readiness_settings_data)
+	elif readiness == "Patch":
+		patch_score = system_package.get("patchScore", {}) if isinstance(system_package, dict) else {}
+		if not isinstance(patch_score, dict):
+			patch_score = {}
+		critical_open = readiness_open_count_or_none(readiness_score_data, ["totalPatchCriticalOpen"])
+		high_open = readiness_open_count_or_none(readiness_score_data, ["totalPatchHighOpen"])
+		if critical_open is None:
+			critical_open = numeric_count(score_value(patch_score, "totalCriticalOpen"))
+		if high_open is None:
+			high_open = numeric_count(score_value(patch_score, "totalHighOpen"))
+		if critical_open > allowed_count or high_open > allowed_count:
+			return readiness_good_label(readiness_settings_data)
+	return label
+
+
+def build_cyber_readiness_score_row(readiness: str, value: str, label_override: str | None = None, readiness_settings_data=None) -> dict[str, str] | None:
+	score = readiness_score_number(value)
+	if score is None:
+		return None
+	label = label_override or readiness_score_label(score, readiness_settings_data)
+	if not label:
+		return None
+	return {"readiness": readiness, "score": f"{label}({score:.2f})", "label": label}
+
+
+def patch_readiness_label(score: float, system_package: dict, readiness_settings_data=None) -> str:
+	label = readiness_score_label(score, readiness_settings_data)
+	if label != "Excellent":
+		return label
+	patch_score = system_package.get("patchScore", {}) if isinstance(system_package, dict) else {}
+	if not isinstance(patch_score, dict):
+		patch_score = {}
+	critical_open = numeric_count(score_value(patch_score, "totalCriticalOpen"))
+	high_open = numeric_count(score_value(patch_score, "totalHighOpen"))
+	critical_excellent_max = risk_setting_count("maxPatchOpenCriticalVulnLowRisk")
+	high_excellent_max = risk_setting_count("maxPatchOpenHighVulnLowRisk")
+	if critical_open > critical_excellent_max or high_open > high_excellent_max:
+		return "Good"
+	return label
 
 
 def risk_setting_percent(key: str) -> float:
@@ -812,6 +1026,22 @@ def load_ppsm_data(arguments: list[str]):
 	return parse_json_value_from_output_or_none(ppsm_result.stdout)
 
 
+def load_readiness_score_data(arguments: list[str]):
+	readiness_script = Path(__file__).resolve().parents[1] / "system-package" / READINESS_SCORE_SCRIPT_NAME
+	readiness_result = call_child_script_result(readiness_script, arguments)
+	if readiness_result.returncode != 0:
+		return None
+	return parse_json_value_from_output_or_none(readiness_result.stdout)
+
+
+def load_readiness_settings_data(arguments: list[str]):
+	readiness_settings_script = Path(__file__).resolve().parents[1] / "system-package" / READINESS_SETTINGS_SCRIPT_NAME
+	readiness_settings_result = call_child_script_result(readiness_settings_script, arguments)
+	if readiness_settings_result.returncode != 0:
+		return None
+	return parse_json_value_from_output_or_none(readiness_settings_result.stdout)
+
+
 def load_approved_pps_listing(arguments: list[str]) -> dict:
 	approved_pps_script = Path(__file__).resolve().parents[1] / "ports-protocols-services" / APPROVED_PPS_SCRIPT_NAME
 	approved_pps_result = call_child_script_result(approved_pps_script, arguments)
@@ -1130,6 +1360,23 @@ def build_patch_vulnerability_risk_summary_rows(system_package: dict) -> list[di
 	return rows
 
 
+def build_cyber_readiness_score_rows(readiness_score_data, system_package: dict, readiness_settings_data=None) -> list[dict[str, str]]:
+	checklist_score = readiness_value(readiness_score_data, ["totalChecklistCyberReadiness"])
+	patch_score = readiness_value(readiness_score_data, ["totalPatchCyberReadiness"])
+	checklist_score_number = readiness_score_number(checklist_score)
+	patch_score_number = readiness_score_number(patch_score)
+	checklist_label = readiness_label_with_critical_allowance("Checklist", checklist_score_number, readiness_score_data, readiness_settings_data, system_package) if checklist_score_number is not None else None
+	patch_label = readiness_label_with_critical_allowance("Patch", patch_score_number, readiness_score_data, readiness_settings_data, system_package) if patch_score_number is not None else None
+	rows = []
+	for row in [
+		build_cyber_readiness_score_row("Checklist", checklist_score, checklist_label, readiness_settings_data),
+		build_cyber_readiness_score_row("Patch", patch_score, patch_label, readiness_settings_data),
+	]:
+		if row is not None:
+			rows.append(row)
+	return rows
+
+
 def build_risk_settings_rows() -> list[dict[str, str]]:
 	return [{"key": key, "value": safe_text(value)} for key, value in RISK_SETTINGS.items()]
 
@@ -1155,7 +1402,7 @@ def build_system_description(system_package: dict, options: dict[str, str]) -> s
 	return optional_value(options, "description", "systemDescription", "system_description", "systemPackageDescription", "packageDescription")
 
 
-def build_report_data(system_key: str, options: dict[str, str], system_package: dict, poam_data, compliance_risk_area: dict[str, str], compliance_control_score_risk_area: dict[str, str], ppsm_data=None, checklist_missing_data=None, approved_pps_listing=None) -> dict[str, str]:
+def build_report_data(system_key: str, options: dict[str, str], system_package: dict, poam_data, compliance_risk_area: dict[str, str], compliance_control_score_risk_area: dict[str, str], ppsm_data=None, checklist_missing_data=None, approved_pps_listing=None, readiness_score_data=None, readiness_settings_data=None) -> dict[str, str]:
 	return {
 		"system_key": system_key,
 		"system_description": build_system_description(system_package, options),
@@ -1164,6 +1411,8 @@ def build_report_data(system_key: str, options: dict[str, str], system_package: 
 		"table_of_contents_rows": build_table_of_contents_rows(),
 		"cat_status_rows": build_cat_status_rows(system_package),
 		"checklist_risk_summary_rows": build_checklist_risk_summary_rows(system_package),
+		"cyber_readiness_score_rows": build_cyber_readiness_score_rows(readiness_score_data, system_package, readiness_settings_data),
+		"cyber_readiness_settings_rows": build_cyber_readiness_settings_rows(readiness_settings_data),
 		"checklist_missing_data_risk_area": build_checklist_missing_data_risk_area(checklist_missing_data),
 		"patch_vulnerability_risk_rows": build_patch_vulnerability_risk_rows(system_package),
 		"patch_vulnerability_risk_summary_rows": build_patch_vulnerability_risk_summary_rows(system_package),
@@ -1211,6 +1460,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	table_header_style = styles["BodyText"].clone("CenteredTableHeader")
 	table_header_style.alignment = 1
 	table_header_style.fontName = "Helvetica-Bold"
+	readiness_score_style = styles["BodyText"].clone("ReadinessScore")
+	readiness_score_style.alignment = 2
 	subheading_style = styles["BodyText"].clone("RiskProfilerSubheading")
 	subheading_style.fontName = "Helvetica-Bold"
 	subheading_style.fontSize = 10
@@ -1242,6 +1493,25 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 
 	def contents_link(title: str, anchor: str):
 		return Paragraph(f'<a href="#{html.escape(anchor, quote=True)}" color="blue">{html.escape(title)}</a>', contents_link_style)
+
+	def readiness_label_from_text(value: str) -> str:
+		return safe_text(value).split("(", 1)[0].strip()
+
+	def readiness_label_cell(value: str, label: str = ""):
+		value_text = html.escape(value)
+		label_text = label or readiness_label_from_text(value)
+		if label_text == "Excellent":
+			return Paragraph(f'<font color="white" backColor="#0000FF">{value_text}</font>', readiness_score_style)
+		if label_text == "Good":
+			return Paragraph(f'<font color="white" backColor="#008000">{value_text}</font>', readiness_score_style)
+		if label_text == "Poor":
+			return Paragraph(f'<font color="black" backColor="#FFFF00">{value_text}</font>', readiness_score_style)
+		if label_text == "Fail":
+			return Paragraph(f'<font color="white" backColor="#800000">{value_text}</font>', readiness_score_style)
+		return Paragraph(value_text, readiness_score_style)
+
+	def readiness_score_cell(row: dict[str, str]):
+		return readiness_label_cell(row["score"], row.get("label", ""))
 
 	def build_contents_table(contents_rows):
 		contents_table_rows = [[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)]]
@@ -1367,6 +1637,63 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
 				("ALIGN", (0, 0), (-1, 0), "CENTER"),
 				("ALIGN", (1, 1), (1, -1), "RIGHT"),
+				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			]
+		)
+	)
+	cyber_readiness_score_table = Table(
+		[
+			[
+				Paragraph("Readiness", table_header_style),
+				Paragraph("Score", table_header_style),
+			],
+			*[
+				[
+					Paragraph(row["readiness"], styles["BodyText"]),
+					readiness_score_cell(row),
+				]
+				for row in report_data["cyber_readiness_score_rows"]
+			],
+		],
+		hAlign="LEFT",
+		colWidths=[220, 180],
+	)
+	cyber_readiness_score_style = [
+		("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+		("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+		("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+		("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+		("ALIGN", (0, 0), (-1, 0), "CENTER"),
+		("ALIGN", (1, 1), (1, -1), "RIGHT"),
+		("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+	]
+	cyber_readiness_score_table.setStyle(TableStyle(cyber_readiness_score_style))
+	cyber_readiness_settings_table = Table(
+		[
+			[
+				Paragraph("Category", table_header_style),
+				Paragraph("Setting", table_header_style),
+			],
+			*[
+				[
+					Paragraph(row["category"], styles["BodyText"]),
+					readiness_label_cell(row["setting"]),
+				]
+				for row in report_data["cyber_readiness_settings_rows"]
+			],
+		],
+		hAlign="LEFT",
+		colWidths=[300, 160],
+	)
+	cyber_readiness_settings_table.setStyle(
+		TableStyle(
+			[
+				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+				("ALIGN", (0, 0), (-1, 0), "CENTER"),
+				("ALIGN", (1, 1), (-1, -1), "RIGHT"),
 				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
 			]
 		)
@@ -2128,6 +2455,18 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	story.extend(
 		[
 		PageBreak(),
+		anchored_heading("Cyber Readiness Score", "cyber-readiness-score"),
+		Spacer(1, 12),
+		cyber_readiness_score_table,
+		Spacer(1, 16),
+		Paragraph("Readiness Settings", styles["Heading1"]),
+		Spacer(1, 8),
+		cyber_readiness_settings_table if report_data["cyber_readiness_settings_rows"] else Paragraph("Readiness settings data was not returned.", styles["Normal"]),
+		]
+	)
+	story.extend(
+		[
+		PageBreak(),
 		anchored_heading("Patch Vulnerability Risk", "patch-vulnerability-risk"),
 		Spacer(1, 12),
 		patch_vulnerability_risk_table,
@@ -2316,6 +2655,27 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	)
 	for row in report_data["checklist_risk_summary_rows"]:
 		cat_status_lines.append(f"{row['title']} | {row['count']} | {row['risk']}")
+	cyber_readiness_score_lines = [
+		"Cyber Readiness Score",
+		"",
+		"Readiness | Score",
+		"--------- | -----",
+	]
+	for row in report_data["cyber_readiness_score_rows"]:
+		cyber_readiness_score_lines.append(f"{row['readiness']} | {row['score']}")
+	cyber_readiness_score_lines.extend(
+		[
+			"",
+			"Readiness Settings",
+			"Category | Setting",
+			"-------- | -------",
+		]
+	)
+	if report_data["cyber_readiness_settings_rows"]:
+		for row in report_data["cyber_readiness_settings_rows"]:
+			cyber_readiness_score_lines.append(f"{row['category']} | {row['setting']}")
+	else:
+		cyber_readiness_score_lines.append("Readiness settings data was not returned.")
 	checklist_missing_data_risk_area = report_data["checklist_missing_data_risk_area"]
 	checklist_missing_data_risk_lines = [
 		"Checklist Missing Data",
@@ -2526,6 +2886,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		),
 		make_text_page(cat_status_lines),
 		make_text_page(checklist_missing_data_risk_lines),
+		make_text_page(cyber_readiness_score_lines),
 		make_text_page(patch_vulnerability_risk_lines),
 		*[make_text_page(poam_risk_area_lines[index:index + 36]) for index in range(0, len(poam_risk_area_lines), 36)],
 		make_text_page(compliance_risk_lines),
@@ -2590,7 +2951,9 @@ def main() -> None:
 	ppsm_data = load_ppsm_data(sys.argv[1:5])
 	checklist_missing_data = load_checklist_missing_data(sys.argv[1:5])
 	approved_pps_listing = load_approved_pps_listing(sys.argv[1:5])
-	report_data = build_report_data(system_key, options, system_package, poam_data, compliance_risk_area, compliance_control_score_risk_area, ppsm_data, checklist_missing_data, approved_pps_listing)
+	readiness_score_data = load_readiness_score_data(sys.argv[1:5])
+	readiness_settings_data = load_readiness_settings_data(sys.argv[1:5])
+	report_data = build_report_data(system_key, options, system_package, poam_data, compliance_risk_area, compliance_control_score_risk_area, ppsm_data, checklist_missing_data, approved_pps_listing, readiness_score_data, readiness_settings_data)
 	output_filename = f"OpenRMFPro-Risk-Profiler-{safe_filename_value(report_data['system_key'])}.pdf"
 	output_path = Path(output_filename)
 	pdf_writer = write_pdf(output_path, report_data)
