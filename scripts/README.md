@@ -1,7 +1,19 @@
 # CYRINAE Python3 Scripts
 
-Python, Pandas and other libraries to do higher level processing of cyber compliance, hygiene, and security data
+Python, Pandas and other libraries to do higher level processing of cyber compliance, hygiene, and security data. Feel free to fork the repo, extend these, add on to them, and submit back for the entire community to use. 
 
+## Available Scripts
+The scripts available are below. And we have other ones copied from our GH public automation repo at https://github.com/SoteriaSoftwareLLC/openrmfpro-automation/ to show how you use them to do higher level work. 
+
+Most of the scripts below you pass in the root URL, your OpenRMF<sup>&reg;</sup> Professional application key, the token, and then your systemKey. See comments in the scripts if more is required. 
+
+| Script | Path | Description |
+| -------- | -------- | ---------------------------------- |
+| System Package Overview PDF | system-package/get_systempackage_by_systemkey_overview_pdf.py | Creates a PDF for main points in your system package  |
+| System Package POAM Raw Severity PDF | poam/get_systempackage_by_systemkey_poam_raw_severity_overview_pdf.py | Creates a PDF for your POAM risk data based on raw severity of items |
+| System Package POAM Residual Risk PDF | poam/get_systempackage_by_systemkey_poam_residual_risk_overview_pdf.py | Creates a PDF for your POAM risk data based on your residual risk of items |
+| Risk Profiler PDF | risk-profiler/risk_profiler_pdf.py | use the thresholds in the settins file to run a risk profiler on all your system package data |
+| CMMC Score (still under development) | CMMC/calculate_cmmc_score.py | Calculate your pass/fail and score for CMMC 2.0 Level 1, 2 or 3 -- still a work in progress |
 
 ## Install Requests Python Package
 
@@ -17,6 +29,14 @@ The system package overview PDF script can create a basic PDF without extra pack
 
 ```
 python3 -m pip install reportlab
+```
+
+## Optional MatPlotPlb Python Package
+
+The Risk Profiler PDF script and others add histogram charts for grouping of data using this package.
+
+```
+python3 -m pip install matplotlib
 ```
 
 ## System Package Overview PDF
