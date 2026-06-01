@@ -13,7 +13,7 @@ Most of the scripts below you pass in the root URL, your OpenRMF<sup>&reg;</sup>
 | System Package POAM Raw Severity PDF | poam/get_systempackage_by_systemkey_poam_raw_severity_overview_pdf.py | Creates a PDF for your POAM risk data based on raw severity of items |
 | System Package POAM Residual Risk PDF | poam/get_systempackage_by_systemkey_poam_residual_risk_overview_pdf.py | Creates a PDF for your POAM risk data based on your residual risk of items |
 | Risk Profiler PDF | risk-profiler/risk_profiler_pdf.py | use the thresholds in the settins file to run a risk profiler on all your system package data |
-| CMMC Score (still under development) | CMMC/calculate_cmmc_score.py | Calculate your pass/fail and score for CMMC 2.0 Level 1, 2 or 3 -- still a work in progress |
+| CMMC Score (in progress) | CMMC/calculate_cmmc_score.py | Calculate your pass/fail and score for CMMC 2.0 Level 1, 2 or 3 -- still a work in progress |
 
 ## Install Requests Python Package
 
