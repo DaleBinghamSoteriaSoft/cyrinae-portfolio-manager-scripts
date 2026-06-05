@@ -467,7 +467,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     styles["BodyText"].fontSize = 12
     styles["BodyText"].leading = 14
     centered_style = ParagraphStyle("Centered", parent=styles["BodyText"], alignment=TA_CENTER)
-    table_cell_style = ParagraphStyle("TableCell", parent=styles["BodyText"], fontSize=9, leading=10)
     table_header_style = ParagraphStyle("TableHeader", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=9, leading=10)
     contents_link_style = ParagraphStyle("ContentsLink", parent=styles["BodyText"], fontSize=11, leading=13, textColor=colors.blue)
     tile_style = ParagraphStyle("Tile", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=14, leading=18)
