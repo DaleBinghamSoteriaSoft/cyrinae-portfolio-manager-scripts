@@ -38,16 +38,13 @@ HARDWARE_SCRIPT_NAME = "get_systempackage_by_systemkey_hardware_json.py"
 SOFTWARE_SCRIPT_NAME = "get_systempackage_by_systemkey_software_json.py"
 PPSM_SCRIPT_NAME = "get_systempackage_by_systemkey_ppsm_json.py"
 POAM_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
-REPORT_TITLE = "OpenRMF Professional System Package Overview"
 REPORT_SECTIONS = [
-    {"title": "Overview", "anchor": "overview", "page_number": "2"},
-    {"title": "Checklist Findings by CAT", "anchor": "checklist-findings-by-cat", "page_number": "3"},
-    {"title": "Checklist Scores and Status", "anchor": "checklist-scores-and-status", "page_number": "4"},
-    {"title": "Patch", "anchor": "patch", "page_number": "5"},
-    {"title": "Hardware", "anchor": "hardware", "page_number": "7"},
-    {"title": "Software", "anchor": "software", "page_number": "8"},
-    {"title": "Ports-Protocols-Services", "anchor": "ports-protocols-services", "page_number": "9"},
-    {"title": "POAM", "anchor": "poam", "page_number": "10"},
+    {"title": "Checklist Information", "anchor": "checklist-information", "page_number": "2"},
+    {"title": "Patch Vulnerability Information", "anchor": "patch", "page_number": "3"},
+    {"title": "Hardware Inventory", "anchor": "hardware", "page_number": "5"},
+    {"title": "Software Inventory by Device", "anchor": "software", "page_number": "6"},
+    {"title": "Ports, Protocols, and Services by Boundary", "anchor": "ports-protocols-services", "page_number": "13"},
+    {"title": "POAM Information", "anchor": "poam", "page_number": "22"},
 ]
 
 
@@ -202,6 +199,10 @@ def safe_text(value) -> str:
 def safe_filename_value(value: str) -> str:
     safe_value = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
     return safe_value.strip(".-") or "unknown-system"
+
+
+def report_title_for_system(title: str) -> str:
+    return f"{safe_text(title).strip() or 'Unknown'} System Package Overview"
 
 
 def build_framework_levels(package_framework: dict) -> list[dict[str, str]]:
@@ -866,6 +867,7 @@ def build_report_data(system_package: dict, patchdata=None, hardwaredata=None, s
     return {
         "system_key": system_key,
         "title": safe_text(system_package.get("title")).strip() or "Unknown",
+        "report_title": report_title_for_system(system_package.get("title")),
         "description": safe_text(system_package.get("description")).strip() or "No description returned.",
         "number_of_checklists": safe_text(system_package.get("numberOfChecklists")).strip() or "0",
         "framework_title": safe_text(package_framework.get("frameworkTitle")).strip() or "Unknown",
@@ -941,6 +943,11 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 
     def anchored_heading(title: str, anchor: str):
         paragraph = Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>{html.escape(title)}', styles["Heading1"])
+        paragraph._toc_anchor = anchor
+        return paragraph
+
+    def anchored_normal(text: str, anchor: str):
+        paragraph = Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>{text}', styles["Normal"])
         paragraph._toc_anchor = anchor
         return paragraph
 
@@ -1030,41 +1037,33 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 
     document_options = {
         "pagesize": letter,
-        "title": REPORT_TITLE,
+        "title": report_data["report_title"],
         "author": "OpenRMF Professional External API Scripts",
     }
     contents_table = build_contents_table()
     story = [
-        Paragraph(REPORT_TITLE, styles["Title"]),
-        Spacer(1, 24),
-        Paragraph("System Package Overview", styles["Heading1"]),
-        Spacer(1, 12),
-        Paragraph(f"Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
+        Paragraph(report_data["report_title"], styles["Title"]),
+        Spacer(1, 4),
+        Paragraph(f"Date Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
+        Spacer(1, 2),
+        anchored_normal(f"Title: {html.escape(report_data['title'])}", "overview"),
+        Spacer(1, 2),
         Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
-        Paragraph(f"Source Script: {SOURCE_SCRIPT_NAME}", styles["Normal"]),
-        Spacer(1, 18),
-        Paragraph("Table of Contents", styles["Heading2"]),
-        Spacer(1, 8),
-        contents_table,
-        PageBreak(),
-        anchored_heading("Overview", "overview"),
-        Spacer(1, 12),
-        Paragraph(f"<b>Title:</b> {html.escape(report_data['title'])}", styles["Normal"]),
-        Spacer(1, 10),
-        Paragraph(f"<b>Description:</b> {html.escape(report_data['description'])}", styles["Normal"]),
-        Spacer(1, 10),
+        Spacer(1, 2),
+        Paragraph(f"Description: {html.escape(report_data['description'])}", styles["Normal"]),
+        Spacer(1, 2),
         Paragraph(
-            f"<b>Number of Checklists:</b> {html.escape(report_data['number_of_checklists'])}",
+            f"Number of Checklists: {html.escape(report_data['number_of_checklists'])}",
             styles["Normal"],
         ),
-        Spacer(1, 10),
-        Paragraph(f"<b>Framework Title:</b> {html.escape(report_data['framework_title'])}", styles["Normal"]),
-        Spacer(1, 10),
-        Paragraph(f"<b>Framework Acronym:</b> {html.escape(report_data['framework_acronym'])}", styles["Normal"]),
-        Spacer(1, 10),
-        Paragraph(f"<b>Framework Version:</b> {html.escape(report_data['framework_version'])}", styles["Normal"]),
-        Spacer(1, 10),
-        Paragraph("<b>Framework Levels:</b>", styles["Normal"]),
+        Spacer(1, 2),
+        Paragraph(f"Framework Title: {html.escape(report_data['framework_title'])}", styles["Normal"]),
+        Spacer(1, 2),
+        Paragraph(f"Framework Acronym: {html.escape(report_data['framework_acronym'])}", styles["Normal"]),
+        Spacer(1, 2),
+        Paragraph(f"Framework Version: {html.escape(report_data['framework_version'])}", styles["Normal"]),
+        Spacer(1, 2),
+        Paragraph("Framework Levels:", styles["Normal"]),
     ]
     if report_data["framework_levels"]:
         for level in report_data["framework_levels"]:
@@ -1076,6 +1075,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             )
     else:
         story.append(Paragraph("None returned.", styles["Normal"]))
+    story.extend(
+        [
+            Spacer(1, 14),
+            contents_table,
+        ]
+    )
     checklist_findings_table = Table(
         [
             [
@@ -1192,40 +1197,41 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             ]
         )
     )
+    checklist_summary_tables = Table(
+        [
+            [Paragraph("Category Total Scores", styles["Heading2"]), Paragraph("Status Totals", styles["Heading2"])],
+            [category_total_table, status_totals_table],
+        ],
+        hAlign="LEFT",
+        colWidths=[210, 210],
+    )
+    checklist_summary_tables.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 18),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
     story.extend(
         [
             PageBreak(),
-            anchored_heading("Checklist", "checklist-findings-by-cat"),
+            anchored_heading("Checklist Information", "checklist-information"),
             Spacer(1, 12),
-            Paragraph("Checklist Findings by CAT", styles["Heading2"]),
-            Spacer(1, 8),
             checklist_findings_table,
             Spacer(1, 16),
             checklist_findings_chart,
+            Spacer(1, 18),
+            checklist_summary_tables,
         ]
     )
     story.extend(
         [
             PageBreak(),
-            anchored_heading("Checklist", "checklist-scores-and-status"),
-            Spacer(1, 12),
-            Paragraph("Category Total Scores", styles["Heading2"]),
-            Spacer(1, 8),
-            category_total_table,
-        ]
-    )
-    story.extend(
-        [
-            Spacer(1, 24),
-            Paragraph("Status Totals", styles["Heading2"]),
-            Spacer(1, 8),
-            status_totals_table,
-        ]
-    )
-    story.extend(
-        [
-            PageBreak(),
-            anchored_heading("Patch", "patch"),
+            anchored_heading("Patch Vulnerability Information", "patch"),
             Spacer(1, 12),
             Paragraph("Patch Vulnerability Totals", styles["Heading2"]),
             Spacer(1, 8),
@@ -1296,10 +1302,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     story.extend(
         [
             PageBreak(),
-            anchored_heading("Hardware", "hardware"),
+            anchored_heading("Hardware Inventory", "hardware"),
             Spacer(1, 12),
-            Paragraph("Hardware Inventory", styles["Heading2"]),
-            Spacer(1, 8),
             Table(
                 hardware_table_rows,
                 hAlign="LEFT",
@@ -1339,10 +1343,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     story.extend(
         [
             PageBreak(),
-            anchored_heading("Software", "software"),
+            anchored_heading("Software Inventory by Device", "software"),
             Spacer(1, 12),
-            Paragraph("Software Inventory by Device", styles["Heading2"]),
-            Spacer(1, 8),
             Table(
                 software_table_rows,
                 hAlign="LEFT",
@@ -1383,10 +1385,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     story.extend(
         [
             PageBreak(),
-            anchored_heading("Ports-Protocols-Services", "ports-protocols-services"),
+            anchored_heading("Ports, Protocols, and Services by Boundary", "ports-protocols-services"),
             Spacer(1, 12),
-            Paragraph("Ports, Protocols, and Services by Boundary", styles["Heading2"]),
-            Spacer(1, 8),
             Table(
                 ppsm_table_rows,
                 hAlign="LEFT",
@@ -1450,7 +1450,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     story.extend(
         [
             PageBreak(),
-            anchored_heading("POAM", "poam"),
+            anchored_heading("POAM Information", "poam"),
             Spacer(1, 12),
             Paragraph("Raw Severity Numbers", styles["Heading2"]),
             Spacer(1, 8),
@@ -1558,19 +1558,14 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
     max_score_total = max(score_row_totals or [0])
 
     title_lines = [
-        REPORT_TITLE,
+        report_data["report_title"],
         "",
-        "System Package Overview",
-        "",
-        f"Generated: {report_data['generated_at']}",
-        f"System Key: {report_data['system_key']}",
-        f"Source Script: {SOURCE_SCRIPT_NAME}",
+        f"Date Generated: {report_data['generated_at']}",
     ]
-    contents_lines = ["Table of Contents", "Page Title                                      Page Number", "--------------------------------------------  -----------"]
+    contents_lines = ["Page Title                                      Page Number", "--------------------------------------------  -----------"]
     contents_lines.extend([f"{row['title']:<44}  {row['page_number']:>11}" for row in report_data["table_of_contents_rows"]])
-    title_lines.extend(["", *contents_lines])
 
-    detail_lines = ["Overview", "", f"Title: {report_data['title']}", "", "Description:"]
+    detail_lines = [f"Title: {report_data['title']}", f"System Key: {report_data['system_key']}", "Description:"]
     detail_lines.extend(textwrap.wrap(report_data["description"], width=78) or [""])
     detail_lines.extend(
         [
@@ -1589,9 +1584,10 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
             detail_lines.append(f"- {format_framework_level(level)}")
     else:
         detail_lines.append("None returned.")
+    title_lines.extend([*detail_lines, "", *contents_lines])
 
     checklist_lines = [
-        "Checklist",
+        "Checklist Information",
         "",
         "Category      Open       Not a Finding  Not Applicable  Not Reviewed",
         "------------  ---------  -------------  --------------  ------------",
@@ -1629,7 +1625,7 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
     }
 
     patch_lines = [
-        "Patch",
+        "Patch Vulnerability Information",
         "",
         "Patch Vulnerability Totals",
         "",
@@ -1672,8 +1668,6 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
         patch_vulnerability_lines.append("No patch vulnerability details returned.")
 
     hardware_lines = [
-        "Hardware",
-        "",
         "Hardware Inventory",
         "",
         "Hostname              Operating System      IP Address List       Patch Scan  Checklists",
@@ -1693,8 +1687,6 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
         hardware_lines.append("No hardware details returned.")
 
     software_lines = [
-        "Software",
-        "",
         "Software Inventory by Device",
         "",
         "Software Name         Version    Asset Type       # Devices  Hostname",
@@ -1714,8 +1706,6 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
         software_lines.append("No software details returned.")
 
     ppsm_lines = [
-        "Ports-Protocols-Services",
-        "",
         "Ports, Protocols, and Services by Boundary",
         "",
         "Port   Protocol  Service              # Devices  Hostname              Boundaries Crossed",
@@ -1736,7 +1726,7 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
         ppsm_lines.append("No ports/protocols/services details returned.")
 
     poam_lines = [
-        "POAM",
+        "POAM Information",
         "",
         "Raw Severity Numbers",
         "",
@@ -1790,17 +1780,7 @@ def build_fallback_pages(report_data: dict[str, str]) -> list[str]:
         31: (0.0, 0.39, 0.0),
     }
 
-    pages = [make_text_page(title_lines, font_size=14)]
-    current_lines: list[str] = []
-    for line in detail_lines:
-        wrapped_lines = textwrap.wrap(line, width=78) if len(line) > 78 else [line]
-        for wrapped_line in wrapped_lines:
-            current_lines.append(wrapped_line)
-            if len(current_lines) == 36:
-                pages.append(make_text_page(current_lines))
-                current_lines = []
-    if current_lines:
-        pages.append(make_text_page(current_lines))
+    pages = make_text_pages(title_lines)
     pages.append(make_text_page(checklist_lines, line_backgrounds=checklist_line_backgrounds))
     pages.append(make_text_page(patch_lines, line_backgrounds=patch_line_backgrounds))
     pages.extend(

@@ -17,7 +17,6 @@ from pathlib import Path
 
 REQUIRED_ARGUMENT_COUNT = 5
 SOURCE_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
-REPORT_TITLE = "OpenRMF Professional POAM Risk"
 STATUS_COLUMNS = ["Ongoing", "Completed", "Accepted"]
 RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low", "Completed", "Accepted", "Not Set"]
 RESIDUAL_RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low"]
@@ -39,7 +38,7 @@ POAM_TYPE_DEFINITIONS = [
 ]
 MANUAL_POAM_TYPE = "Manual/Deleted"
 REPORT_SECTIONS = [
-    {"title": "Details", "anchor": "details", "page_number": "2"},
+    {"title": "POAM Details by Residual Risk and Status", "anchor": "poam-details-by-residual-risk-and-status", "page_number": "2"},
     {"title": "Ongoing Items by Type and Residual Risk", "anchor": "ongoing-items-by-type-and-residual-risk", "page_number": "3"},
 ]
 
@@ -107,6 +106,13 @@ def compact_text(value: str, max_length: int = 160) -> str:
 def safe_filename_value(value: str) -> str:
     safe_value = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
     return safe_value.strip(".-") or "unknown-system"
+
+
+def report_title_for_system(system_key: str, system_title: str) -> str:
+    system_title_text = safe_text(system_title).strip()
+    if system_title_text:
+        return f"{system_title_text} POAM Overview by Residual Risk"
+    return f"{safe_text(system_key).strip() or 'Unknown System'} POAM Overview by Residual Risk"
 
 
 def first_value(record: dict, keys: list[str]) -> str:
@@ -313,17 +319,33 @@ def build_ongoing_type_risk_totals(records: list[dict]) -> dict[str, dict[str, i
     return totals
 
 
+def first_system_metadata_value(poamdata, records: list[dict], keys: list[str]) -> str:
+    if isinstance(poamdata, dict):
+        value = first_value(poamdata, keys)
+        if value:
+            return value
+
+    for record in records:
+        value = first_value(record, keys)
+        if value:
+            return value
+    return ""
+
+
 def build_report_data(poamdata, system_key: str) -> dict:
     records = poam_records(poamdata)
     ongoing_records = [record for record in records if poam_status(record) == "Ongoing"]
-    system_title = ""
-    for record in records:
-        system_title = first_value(record, ["systemTitle", "title", "systemName"])
-        if system_title:
-            break
+    system_title = first_system_metadata_value(poamdata, records, ["systemTitle", "title", "systemName"])
+    system_description = first_system_metadata_value(
+        poamdata,
+        records,
+        ["systemDescription", "systemDescriptionString", "systemDesc", "systemSummary", "systemOverview"],
+    )
     return {
         "system_key": system_key,
+        "report_title": report_title_for_system(system_key, system_title),
         "system_title": system_title or "Unknown",
+        "system_description": system_description or "Unknown",
         "poam_count": len(records),
         "ongoing_count": len(ongoing_records),
         "risk_totals": build_risk_totals(records),
@@ -400,7 +422,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             ]
             for row in report_data["table_of_contents_rows"]
         )
-        table = Table(contents_table_rows, hAlign="CENTER", colWidths=[330, 90])
+        table = Table(contents_table_rows, hAlign="LEFT", colWidths=[330, 90])
         table.setStyle(
             TableStyle(
                 [
@@ -576,7 +598,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 
     document_options = {
         "pagesize": letter,
-        "title": REPORT_TITLE,
+        "title": report_data["report_title"],
         "author": "OpenRMF Professional External API Scripts",
         "leftMargin": 36,
         "rightMargin": 36,
@@ -585,18 +607,16 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     }
     contents_table = build_contents_table()
     story = [
-        Paragraph(REPORT_TITLE, styles["Title"]),
+        Paragraph(report_data["report_title"], styles["Title"]),
         Spacer(1, 10),
-        Paragraph(f"Generated: {html.escape(report_data['generated_at'])}", centered_style),
-        Paragraph(f"System Key: {html.escape(report_data['system_key'])}", centered_style),
-        Paragraph(f"System Title: {html.escape(report_data['system_title'])}", centered_style),
-        Paragraph(f"Source Script: {SOURCE_SCRIPT_NAME}", centered_style),
+        Paragraph(f"Date Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
+        Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
+        Paragraph(f"System Title: {html.escape(report_data['system_title'])}", styles["Normal"]),
+        Paragraph(f"Description: {html.escape(report_data['system_description'])}", styles["Normal"]),
         Spacer(1, 18),
-        Paragraph("Table of Contents", styles["Heading2"]),
-        Spacer(1, 8),
         contents_table,
         PageBreak(),
-        anchored_heading("Details", "details"),
+        anchored_heading("POAM Details by Residual Risk and Status", "poam-details-by-residual-risk-and-status"),
         Spacer(1, 12),
         build_risk_boxes(),
         Spacer(1, 20),
@@ -640,20 +660,20 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
     risk_totals = report_data["risk_totals"]
     type_totals_by_status = report_data["type_totals_by_status"]
     ongoing_type_risk_totals = report_data["ongoing_type_risk_totals"]
-    contents_lines = ["Table of Contents", "Page Title                                      Page Number", "--------------------------------------------  -----------"]
+    contents_lines = ["Page Title                                      Page Number", "--------------------------------------------  -----------"]
     contents_lines.extend([f"{row['title']:<44}  {row['page_number']:>11}" for row in report_data["table_of_contents_rows"]])
     cover_lines = [
-        REPORT_TITLE,
+        report_data["report_title"],
         "",
-        f"Generated: {report_data['generated_at']}",
+        f"Date Generated: {report_data['generated_at']}",
         f"System Key: {report_data['system_key']}",
         f"System Title: {report_data['system_title']}",
-        f"Source Script: {SOURCE_SCRIPT_NAME}",
+        f"Description: {report_data['system_description']}",
         "",
         *contents_lines,
     ]
     chart_lines = [
-        "Details",
+        "POAM Details by Residual Risk and Status",
         "",
         "Residual Risk Mitigations | Ongoing Count",
         "-------------------------- | -------------",
