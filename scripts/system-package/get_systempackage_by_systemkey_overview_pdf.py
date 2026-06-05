@@ -946,11 +946,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
         paragraph._toc_anchor = anchor
         return paragraph
 
-    def anchor_marker(anchor: str):
-        paragraph = Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>', styles["Normal"])
-        paragraph._toc_anchor = anchor
-        return paragraph
-
     def anchored_normal(text: str, anchor: str):
         paragraph = Paragraph(f'<a name="{html.escape(anchor, quote=True)}"/>{text}', styles["Normal"])
         paragraph._toc_anchor = anchor
