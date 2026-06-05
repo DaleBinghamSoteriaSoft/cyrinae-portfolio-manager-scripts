@@ -33,7 +33,6 @@ from pathlib import Path
 
 REQUIRED_ARGUMENT_COUNT = 5
 SOURCE_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
-REPORT_TITLE = "OpenRMF Professional POAM Overview"
 STATUS_COLUMNS = ["Ongoing", "Completed", "Accepted"]
 RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low"]
 POAM_TYPE_DEFINITIONS = [
@@ -129,6 +128,18 @@ def safe_text(value) -> str:
 def safe_filename_value(value: str) -> str:
     safe_value = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
     return safe_value.strip(".-") or "unknown-system"
+
+
+def report_title_for_system(system_key: str, system_title: str) -> str:
+    system_title_text = safe_text(system_title).strip()
+    if system_title_text:
+        return f"{system_title_text} POAM Overview"
+
+    system_key_text = safe_text(system_key).strip()
+    normalized_system_key = re.sub(r"[^a-z0-9]+", "", system_key_text.lower())
+    if normalized_system_key == "soteriainfra":
+        return "Soteria Infrastructure POAM Overview"
+    return f"{system_key_text or 'Unknown System'} POAM Overview"
 
 
 def first_value(record: dict, keys: list[str]) -> str:
@@ -509,6 +520,7 @@ def build_report_data(poamdata, system_key: str) -> dict:
 
     return {
         "system_key": system_key,
+        "report_title": report_title_for_system(system_key, system_title),
         "system_title": system_title or "Unknown",
         "status_totals": build_status_totals(records),
         "type_status_rows": build_type_status_rows(records),
@@ -903,19 +915,16 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 
     document_options = {
         "pagesize": letter,
-        "title": REPORT_TITLE,
+        "title": report_data["report_title"],
         "author": "OpenRMF Professional External API Scripts",
     }
     contents_table = build_contents_table()
     story = [
-        Paragraph(REPORT_TITLE, styles["Title"]),
-        Spacer(1, 24),
-        Paragraph("POAM Overview", styles["Heading1"]),
-        Spacer(1, 12),
-        Paragraph(f"Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
+        Paragraph(report_data["report_title"], styles["Title"]),
+        Spacer(1, 18),
+        Paragraph(f"Date Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
         Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
         Paragraph(f"System Title: {html.escape(report_data['system_title'])}", styles["Normal"]),
-        Paragraph(f"Source Script: {SOURCE_SCRIPT_NAME}", styles["Normal"]),
         Spacer(1, 18),
         Paragraph("Table of Contents", styles["Heading2"]),
         Spacer(1, 8),
@@ -1110,14 +1119,11 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
     page_streams = [
         make_text_page(
             [
-                REPORT_TITLE,
+                report_data["report_title"],
                 "",
-                "POAM Overview",
-                "",
-                f"Generated: {report_data['generated_at']}",
+                f"Date Generated: {report_data['generated_at']}",
                 f"System Key: {report_data['system_key']}",
                 f"System Title: {report_data['system_title']}",
-                f"Source Script: {SOURCE_SCRIPT_NAME}",
                 "",
                 *contents_lines,
             ],
