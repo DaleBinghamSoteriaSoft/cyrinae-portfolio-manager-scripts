@@ -17,7 +17,6 @@ from pathlib import Path
 
 REQUIRED_ARGUMENT_COUNT = 5
 SOURCE_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
-REPORT_TITLE = "OpenRMF Professional POAM Visual"
 STATUS_COLUMNS = ["Ongoing", "Completed", "Accepted"]
 SEVERITY_COLUMNS = ["Critical", "High", "Medium", "Low"]
 POAM_TYPE_DEFINITIONS = [
@@ -29,6 +28,7 @@ POAM_TYPE_DEFINITIONS = [
 MANUAL_POAM_TYPE = "Manual/Deleted"
 POAM_TYPE_DISPLAY_ORDER = ["Checklist", "Patch", "Other Technology", "Statement", MANUAL_POAM_TYPE]
 SOURCE_TYPE_COLUMNS = ["Checklist", "Patch", "Statement", "Inherited", "Other Tech", "Manual"]
+OVERDUE_COMPLETION_PAGE_SIZE = 10
 SOURCE_TYPE_DEFINITIONS = [
     ("artifactId", "Checklist"),
     ("patchScanId", "Patch"),
@@ -37,8 +37,9 @@ SOURCE_TYPE_DEFINITIONS = [
     ("vulnScanId", "Other Tech"),
 ]
 REPORT_SECTIONS = [
-    {"title": "POAM Details", "anchor": "poam-details", "page_number": "2"},
-    {"title": "POAM Completion Dates Overdue", "anchor": "poam-completion-dates-overdue", "page_number": "3"},
+    {"title": "POAM Totals by Severity and Status", "anchor": "poam-totals-by-severity-and-status", "page_number": "2"},
+    {"title": "POAM Details by Item Type", "anchor": "poam-details-by-item-type", "page_number": "3"},
+    {"title": "POAM Completions Dates Overview", "anchor": "poam-completion-dates-overview", "page_number": "4"},
 ]
 
 
@@ -98,6 +99,18 @@ def safe_text(value) -> str:
 def safe_filename_value(value: str) -> str:
     safe_value = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
     return safe_value.strip(".-") or "unknown-system"
+
+
+def report_title_for_system(system_key: str, system_title: str) -> str:
+    system_title_text = safe_text(system_title).strip()
+    if system_title_text:
+        return f"{system_title_text} POAM Overview by Raw Severity"
+
+    system_key_text = safe_text(system_key).strip()
+    normalized_system_key = re.sub(r"[^a-z0-9]+", "", system_key_text.lower())
+    if normalized_system_key == "soteriainfra":
+        return "Soteria Infrastructure POAM Overview by Raw Severity"
+    return f"{system_key_text or 'Unknown System'} POAM Overview by Raw Severity"
 
 
 def first_value(record: dict, keys: list[str]) -> str:
@@ -387,16 +400,32 @@ def build_source_type_totals(records: list[dict]) -> dict[str, int]:
     return totals
 
 
+def first_system_metadata_value(poamdata, records: list[dict], keys: list[str]) -> str:
+    if isinstance(poamdata, dict):
+        value = first_value(poamdata, keys)
+        if value:
+            return value
+
+    for record in records:
+        value = first_value(record, keys)
+        if value:
+            return value
+    return ""
+
+
 def build_report_data(poamdata, system_key: str) -> dict:
     records = poam_records(poamdata)
-    system_title = ""
-    for record in records:
-        system_title = first_value(record, ["systemTitle", "title", "systemName"])
-        if system_title:
-            break
+    system_title = first_system_metadata_value(poamdata, records, ["systemTitle", "title", "systemName"])
+    system_description = first_system_metadata_value(
+        poamdata,
+        records,
+        ["systemDescription", "systemDescriptionString", "systemDesc", "systemSummary", "systemOverview"],
+    )
     return {
         "system_key": system_key,
+        "report_title": report_title_for_system(system_key, system_title),
         "system_title": system_title or "Unknown",
+        "system_description": system_description or "Unknown",
         "status_totals": build_status_totals(records),
         "ongoing_severity_totals": build_ongoing_severity_totals(records),
         "type_totals_by_status": build_type_totals_by_status(records),
@@ -433,11 +462,15 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
                 self.section_page_numbers[anchor] = self.page
 
     styles = getSampleStyleSheet()
+    styles["Normal"].fontSize = 12
+    styles["Normal"].leading = 14
+    styles["BodyText"].fontSize = 12
+    styles["BodyText"].leading = 14
     centered_style = ParagraphStyle("Centered", parent=styles["BodyText"], alignment=TA_CENTER)
-    table_cell_style = ParagraphStyle("TableCell", parent=styles["BodyText"], fontSize=7, leading=8)
-    table_header_style = ParagraphStyle("TableHeader", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=7, leading=8)
-    contents_link_style = ParagraphStyle("ContentsLink", parent=styles["BodyText"], fontSize=9, leading=11, textColor=colors.blue)
-    tile_style = ParagraphStyle("Tile", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=12, leading=16)
+    table_cell_style = ParagraphStyle("TableCell", parent=styles["BodyText"], fontSize=9, leading=10)
+    table_header_style = ParagraphStyle("TableHeader", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=9, leading=10)
+    contents_link_style = ParagraphStyle("ContentsLink", parent=styles["BodyText"], fontSize=11, leading=13, textColor=colors.blue)
+    tile_style = ParagraphStyle("Tile", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=14, leading=18)
     severity_colors = {
         "Critical": colors.HexColor("#800000"),
         "High": colors.HexColor("#C00000"),
@@ -494,7 +527,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             ]
             for row in report_data["table_of_contents_rows"]
         )
-        table = Table(contents_table_rows, hAlign="CENTER", colWidths=[430, 90])
+        table = Table(contents_table_rows, hAlign="LEFT", colWidths=[430, 90])
         table.setStyle(
             TableStyle(
                 [
@@ -514,7 +547,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             [
                 [
                     Paragraph(
-                        f"<font size='22'>{safe_text(totals[status])}</font><br/>{html.escape(status)} Items",
+                        f"<font size='24'>{safe_text(totals[status])}</font><br/>{html.escape(status)} Items",
                         tile_style,
                     )
                     for status in STATUS_COLUMNS
@@ -547,7 +580,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             [
                 [
                     Paragraph(
-                        f"<font size='22'>{safe_text(totals[severity])}</font><br/>{html.escape(severity)} Ongoing",
+                        f"<font size='24'>{safe_text(totals[severity])}</font><br/>{html.escape(severity)} Ongoing",
                         tile_style,
                     )
                     for severity in SEVERITY_COLUMNS
@@ -581,7 +614,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         type_labels = POAM_TYPE_DISPLAY_ORDER
 
         drawing = Drawing(230, 210)
-        drawing.add(String(50, 195, f"{status} by Type", fontName="Helvetica-Bold", fontSize=11))
+        drawing.add(String(50, 195, f"{status} by Type", fontName="Helvetica-Bold", fontSize=12))
 
         if nonzero_totals:
             labels = [label for label, _ in nonzero_totals]
@@ -620,7 +653,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
                         safe_text(value),
                         fillColor=pie_label_text_colors.get(label, colors.black),
                         fontName="Helvetica-Bold",
-                        fontSize=10,
+                        fontSize=11,
                     )
                 )
                 current_angle -= sweep_angle
@@ -629,7 +662,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         for index, label in enumerate(type_labels):
             current_y = legend_y - (index * 12)
             drawing.add(Rect(30, current_y - 1, 7, 7, fillColor=type_colors.get(label, colors.lightgrey), strokeColor=None))
-            drawing.add(String(42, current_y, label, fontSize=7))
+            drawing.add(String(42, current_y, label, fontSize=8))
         return drawing
 
     def build_type_pie_charts() -> Table:
@@ -650,25 +683,31 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 
     def build_source_type_boxes() -> Table:
         totals = report_data["source_type_totals"]
+        source_type_rows = [SOURCE_TYPE_COLUMNS[index : index + 3] for index in range(0, len(SOURCE_TYPE_COLUMNS), 3)]
         table = Table(
             [
                 [
                     Paragraph(
-                        f"<font size='20'>{safe_text(totals[source_type])}</font><br/>{html.escape(source_type)}",
+                        f"<font size='24'>{safe_text(totals[source_type])}</font><br/>{html.escape(source_type)}",
                         tile_style,
                     )
+                    for source_type in source_type_row
                 ]
-                for source_type in SOURCE_TYPE_COLUMNS
+                for source_type_row in source_type_rows
             ],
             hAlign="LEFT",
-            colWidths=[155],
-            rowHeights=[58 for _ in SOURCE_TYPE_COLUMNS],
+            colWidths=[155, 155, 155],
+            rowHeights=[70 for _ in source_type_rows],
         )
+        background_styles = []
+        for row_index, source_type_row in enumerate(source_type_rows):
+            for column_index, source_type in enumerate(source_type_row):
+                background_styles.append(("BACKGROUND", (column_index, row_index), (column_index, row_index), source_type_colors[source_type]))
         table.setStyle(
             TableStyle(
                 [
-                    *[("BACKGROUND", (0, row_index), (0, row_index), source_type_colors[source_type]) for row_index, source_type in enumerate(SOURCE_TYPE_COLUMNS)],
-                    ("TEXTCOLOR", (0, 0), (0, -1), colors.white),
+                    *background_styles,
+                    ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
                     ("BOX", (0, 0), (-1, -1), 0.75, colors.grey),
                     ("INNERGRID", (0, 0), (-1, -1), 6, colors.white),
                     ("ALIGN", (0, 0), (-1, -1), "CENTER"),
@@ -685,14 +724,14 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     def overdue_page_anchor(page_number: int) -> Paragraph:
         return Paragraph(f'<a name="overdue_page_{page_number}"/>', styles["Normal"])
 
-    def overdue_page_count(page_size: int = 15) -> int:
+    def overdue_page_count(page_size: int = OVERDUE_COMPLETION_PAGE_SIZE) -> int:
         return max(1, math.ceil(len(report_data["overdue_completion_items"]) / page_size))
 
-    def overdue_page_items(page_number: int, page_size: int = 15) -> list[dict[str, str]]:
+    def overdue_page_items(page_number: int, page_size: int = OVERDUE_COMPLETION_PAGE_SIZE) -> list[dict[str, str]]:
         start_index = (page_number - 1) * page_size
         return report_data["overdue_completion_items"][start_index : start_index + page_size]
 
-    def build_pagination_bar(total_items: int, current_page: int, page_size: int = 15) -> Table:
+    def build_pagination_bar(total_items: int, current_page: int, page_size: int = OVERDUE_COMPLETION_PAGE_SIZE) -> Table:
         page_count = max(1, math.ceil(total_items / page_size))
         if page_count <= 25:
             page_labels = list(range(1, page_count + 1))
@@ -702,7 +741,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             if page_count not in page_labels:
                 page_labels.append(page_count)
 
-        pagination_style = ParagraphStyle("Pagination", parent=styles["BodyText"], alignment=TA_CENTER, fontSize=7, leading=8)
+        pagination_style = ParagraphStyle("Pagination", parent=styles["BodyText"], alignment=TA_CENTER, fontSize=8, leading=9)
         page_cells = []
         for page_label in page_labels:
             if page_label == current_page:
@@ -710,12 +749,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             else:
                 page_cells.append(Paragraph(f'<link href="#overdue_page_{page_label}">{safe_text(page_label)}</link>', pagination_style))
 
-        table = Table([page_cells], hAlign="LEFT", colWidths=[20 for _ in page_cells], rowHeights=[18])
+        table = Table([page_cells], hAlign="LEFT", colWidths=[26 for _ in page_cells], rowHeights=[20])
         styles_for_table = [
             ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
         ]
         if page_cells:
             styles_for_table.extend(
@@ -728,8 +767,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         return table
 
     def build_overdue_table(items: list[dict[str, str]]) -> Table:
-        preview_cell_style = ParagraphStyle("PreviewCell", parent=styles["BodyText"], fontSize=6, leading=7)
-        preview_header_style = ParagraphStyle("PreviewHeader", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=6, leading=7)
+        preview_cell_style = ParagraphStyle("PreviewCell", parent=styles["BodyText"], fontSize=8, leading=9)
+        preview_header_style = ParagraphStyle("PreviewHeader", parent=styles["BodyText"], alignment=TA_CENTER, fontName="Helvetica-Bold", fontSize=8, leading=9)
         rows = [[Paragraph(label, preview_header_style) for label in ["poamItemId", "securityChecks", "device", "source", "days"]]]
         for item in items:
             rows.append(
@@ -757,7 +796,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         )
         return table
 
-    def build_items_preview_panel(page_number: int = 1, page_size: int = 15) -> list:
+    def build_items_preview_panel(page_number: int = 1, page_size: int = OVERDUE_COMPLETION_PAGE_SIZE) -> list:
         overdue_items = report_data["overdue_completion_items"]
         total_items = len(overdue_items)
         visible_items = overdue_page_items(page_number, page_size)
@@ -765,7 +804,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         ending_index = min(page_number * page_size, total_items)
         summary_text = f"Showing {starting_index} to {ending_index} of {total_items} entries" if total_items else "Showing 0 to 0 of 0 entries"
         return [
-            Paragraph("POAM Completion Dates Overdue", styles["Heading2"]),
             build_overdue_table(visible_items),
             Spacer(1, 6),
             Paragraph(summary_text, styles["Normal"]),
@@ -794,7 +832,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 
     document_options = {
         "pagesize": landscape(letter),
-        "title": REPORT_TITLE,
+        "title": report_data["report_title"],
         "author": "OpenRMF Professional External API Scripts",
         "leftMargin": 36,
         "rightMargin": 36,
@@ -803,18 +841,16 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     }
     contents_table = build_contents_table()
     story = [
-        Paragraph(REPORT_TITLE, styles["Title"]),
+        Paragraph(report_data["report_title"], styles["Title"]),
         Spacer(1, 12),
-        Paragraph(f"Generated: {html.escape(report_data['generated_at'])}", centered_style),
-        Paragraph(f"System Key: {html.escape(report_data['system_key'])}", centered_style),
-        Paragraph(f"System Title: {html.escape(report_data['system_title'])}", centered_style),
-        Paragraph(f"Source Script: {SOURCE_SCRIPT_NAME}", centered_style),
+        Paragraph(f"Date Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
+        Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
+        Paragraph(f"System Title: {html.escape(report_data['system_title'])}", styles["Normal"]),
+        Paragraph(f"Description: {html.escape(report_data['system_description'])}", styles["Normal"]),
         Spacer(1, 18),
-        Paragraph("Table of Contents", styles["Heading2"]),
-        Spacer(1, 8),
         contents_table,
         PageBreak(),
-        anchored_heading("POAM Details", "poam-details"),
+        anchored_heading("POAM Totals by Severity and Status", "poam-totals-by-severity-and-status"),
         Spacer(1, 8),
         build_severity_boxes(),
         Spacer(1, 18),
@@ -822,18 +858,22 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Spacer(1, 18),
         build_type_pie_charts(),
         PageBreak(),
-        anchored_heading("POAM Details", "poam-source-details"),
+        anchored_heading("POAM Details by Item Type", "poam-details-by-item-type"),
         Spacer(1, 8),
-        anchor_marker("poam-completion-dates-overdue"),
+        build_source_type_boxes(),
+        PageBreak(),
+        anchor_marker("poam-completion-dates-overview"),
         overdue_page_anchor(1),
-        build_source_details_page(),
+        Paragraph("POAM Completions Dates Overview", styles["Heading1"]),
+        Spacer(1, 8),
+        *build_items_preview_panel(),
     ]
     for page_number in range(2, overdue_page_count() + 1):
         story.extend(
             [
                 PageBreak(),
                 overdue_page_anchor(page_number),
-                Paragraph("POAM Completion Dates Overdue", styles["Heading1"]),
+                Paragraph("POAM Completions Dates Overview", styles["Heading1"]),
                 Spacer(1, 8),
                 *build_items_preview_panel(page_number),
             ]
@@ -858,12 +898,13 @@ def escape_pdf_text(value: str) -> str:
     return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def make_text_page(lines: list[str], font_size: int = 10) -> str:
+def make_text_page(lines: list[str], font_size: int = 12) -> str:
     y_position = 560
+    line_height = 18 if font_size >= 14 else 14
     content = ["BT", f"/F1 {font_size} Tf"]
     for line in lines:
         content.append(f"1 0 0 1 36 {y_position} Tm ({escape_pdf_text(line)}) Tj")
-        y_position -= 14
+        y_position -= line_height
     content.append("ET")
     return "\n".join(content)
 
@@ -871,21 +912,21 @@ def make_text_page(lines: list[str], font_size: int = 10) -> str:
 def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
     severity_totals = report_data["ongoing_severity_totals"]
     status_totals = report_data["status_totals"]
-    contents_lines = ["Table of Contents", "Page Title                                      Page Number", "--------------------------------------------  -----------"]
+    contents_lines = ["Page Title                                      Page Number", "--------------------------------------------  -----------"]
     contents_lines.extend([f"{row['title']:<44}  {row['page_number']:>11}" for row in report_data["table_of_contents_rows"]])
     cover_lines = [
-        REPORT_TITLE,
+        report_data["report_title"],
         "",
-        f"Generated: {report_data['generated_at']}",
+        f"Date Generated: {report_data['generated_at']}",
         f"System Key: {report_data['system_key']}",
         f"System Title: {report_data['system_title']}",
-        f"Source Script: {SOURCE_SCRIPT_NAME}",
+        f"Description: {report_data['system_description']}",
         "",
         *contents_lines,
     ]
     lines = [
         "",
-        "POAM Details",
+        "POAM Totals by Severity and Status",
         "",
         f"Critical: {severity_totals['Critical']}  High: {severity_totals['High']}  Medium: {severity_totals['Medium']}  Low: {severity_totals['Low']}",
         f"Ongoing: {status_totals['Ongoing']}  Completed: {status_totals['Completed']}  Accepted: {status_totals['Accepted']}",
@@ -899,7 +940,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         for item in items:
             lines.append(compact_text(f"{item['id']} | {item['severity']} | {item['control']} | {item['scheduled_completion']} | {item['type']} | {item['description']}", 150))
         lines.append("")
-    page_streams = [make_text_page(cover_lines)]
+    page_streams = [make_text_page(cover_lines, font_size=14)]
     page_streams.extend(make_text_page(lines[index : index + 37]) for index in range(0, len(lines), 37))
     objects = [b"<< /Type /Catalog /Pages 2 0 R >>", b"", b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
     page_object_numbers = []

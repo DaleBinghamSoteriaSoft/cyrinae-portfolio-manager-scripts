@@ -357,6 +357,15 @@ def readiness_good_label(readiness_settings_data=None) -> str:
 	return readiness_grade_label(settings, "Good", "Good")
 
 
+def readiness_grade_prefix_for_label(label: str, readiness_settings_data=None) -> str:
+	settings = readiness_settings_record(readiness_settings_data)
+	label_text = safe_text(label).strip()
+	for prefix in READINESS_GRADE_PREFIXES:
+		if label_text == readiness_grade_label(settings, prefix, prefix):
+			return prefix
+	return label_text
+
+
 def readiness_score_label(score: float, readiness_settings_data=None) -> str:
 	settings = readiness_settings_record(readiness_settings_data)
 	if settings:
@@ -385,13 +394,17 @@ def readiness_score_label(score: float, readiness_settings_data=None) -> str:
 
 def readiness_weight_setting(settings: dict, key: str, readiness_settings_data) -> str:
 	value = readiness_setting_value(settings, key)
-	if value in {"Missing Data", "Not Used"}:
-		return value
-	number_value = readiness_setting_number(settings, key)
-	if number_value is None:
-		return value
-	label = readiness_score_label(number_value, readiness_settings_data)
-	return f"{label}({value})" if label else value
+	return value
+
+
+def readiness_grade_setting(settings: dict, prefix: str, include_max_critical_allowed: bool = False) -> str:
+	setting_lines = [
+		f"Max Score = {readiness_setting_value(settings, f'grade{prefix}MaxScore')}",
+		f"Min Score = {readiness_setting_value(settings, f'grade{prefix}MinimumScore')}",
+	]
+	if include_max_critical_allowed:
+		setting_lines.append(f"Max Critical Allowed = {readiness_setting_value(settings, f'grade{prefix}MaxCriticalAllowed')}")
+	return "\n".join(setting_lines)
 
 
 def build_cyber_readiness_settings_rows(readiness_settings_data) -> list[dict[str, str]]:
@@ -412,6 +425,14 @@ def build_cyber_readiness_settings_rows(readiness_settings_data) -> list[dict[st
 		("Patch Low Weight", "patchVulnerabilityWeightLow"),
 	]:
 		rows.append({"category": label, "setting": readiness_weight_setting(settings, key, readiness_settings_data)})
+	for prefix, default_label, include_max_critical_allowed in [
+		("Excellent", "Excellent", True),
+		("Good", "Good", False),
+		("Poor", "Poor", False),
+		("Fail", "Fail", False),
+	]:
+		label = readiness_grade_label(settings, prefix, default_label)
+		rows.append({"category": label, "setting": readiness_grade_setting(settings, prefix, include_max_critical_allowed), "grade_prefix": prefix})
 	return rows
 
 
@@ -442,7 +463,7 @@ def readiness_label_with_critical_allowance(readiness: str, score: float, readin
 		return label
 	allowed_count = readiness_excellent_max_critical_allowed(readiness_settings_data)
 	if allowed_count is None:
-		return patch_readiness_label(score, system_package) if readiness == "Patch" else label
+		return patch_readiness_label(score, system_package, readiness_settings_data) if readiness == "Patch" else label
 	if readiness == "Checklist":
 		score_data = system_package.get("score", {}) if isinstance(system_package, dict) else {}
 		if not isinstance(score_data, dict):
@@ -474,12 +495,13 @@ def build_cyber_readiness_score_row(readiness: str, value: str, label_override: 
 	label = label_override or readiness_score_label(score, readiness_settings_data)
 	if not label:
 		return None
-	return {"readiness": readiness, "score": f"{label}({score:.2f})", "label": label}
+	return {"readiness": readiness, "score": f"{label}({score:.2f})", "label": label, "grade_prefix": readiness_grade_prefix_for_label(label, readiness_settings_data)}
 
 
 def patch_readiness_label(score: float, system_package: dict, readiness_settings_data=None) -> str:
 	label = readiness_score_label(score, readiness_settings_data)
-	if label != "Excellent":
+	excellent_label = readiness_grade_label(readiness_settings_record(readiness_settings_data), "Excellent", "Excellent")
+	if label != excellent_label:
 		return label
 	patch_score = system_package.get("patchScore", {}) if isinstance(system_package, dict) else {}
 	if not isinstance(patch_score, dict):
@@ -1402,9 +1424,26 @@ def build_system_description(system_package: dict, options: dict[str, str]) -> s
 	return optional_value(options, "description", "systemDescription", "system_description", "systemPackageDescription", "packageDescription")
 
 
+def build_system_title(system_package: dict, options: dict[str, str]) -> str:
+	title = first_json_value(
+		system_package,
+		{"title", "systemTitle", "system_title", "systemName", "name"},
+	)
+	if title:
+		return title
+	return optional_value(options, "title", "systemTitle", "system_title", "systemName", "name")
+
+
+def report_title_for_system(system_title: str) -> str:
+	return f"{safe_text(system_title).strip() or 'Unknown'} Risk Profiler"
+
+
 def build_report_data(system_key: str, options: dict[str, str], system_package: dict, poam_data, compliance_risk_area: dict[str, str], compliance_control_score_risk_area: dict[str, str], ppsm_data=None, checklist_missing_data=None, approved_pps_listing=None, readiness_score_data=None, readiness_settings_data=None) -> dict[str, str]:
+	system_title = build_system_title(system_package, options)
 	return {
 		"system_key": system_key,
+		"system_title": system_title,
+		"report_title": report_title_for_system(system_title),
 		"system_description": build_system_description(system_package, options),
 		"framework_title": framework_value(system_package, options, {"frameworkTitle", "frameworktitle", "framework_title"}, "frameworkTitle", "frameworktitle", "framework_title"),
 		"framework_version": framework_value(system_package, options, {"frameworkVersion", "frameworkversion", "framework_version"}, "frameworkVersion", "frameworkversion", "framework_version"),
@@ -1462,6 +1501,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	table_header_style.fontName = "Helvetica-Bold"
 	readiness_score_style = styles["BodyText"].clone("ReadinessScore")
 	readiness_score_style.alignment = 2
+	readiness_settings_style = styles["BodyText"].clone("ReadinessSettings")
+	readiness_settings_style.alignment = 0
 	subheading_style = styles["BodyText"].clone("RiskProfilerSubheading")
 	subheading_style.fontName = "Helvetica-Bold"
 	subheading_style.fontSize = 10
@@ -1497,21 +1538,27 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	def readiness_label_from_text(value: str) -> str:
 		return safe_text(value).split("(", 1)[0].strip()
 
-	def readiness_label_cell(value: str, label: str = ""):
-		value_text = html.escape(value)
+	def readiness_label_cell(value: str, label: str = "", cell_style=None):
+		cell_style = cell_style or readiness_score_style
+		value_text = "<br/>".join(html.escape(line) for line in safe_text(value).splitlines())
 		label_text = label or readiness_label_from_text(value)
 		if label_text == "Excellent":
-			return Paragraph(f'<font color="white" backColor="#0000FF">{value_text}</font>', readiness_score_style)
+			return Paragraph(f'<font color="white" backColor="#0000FF">{value_text}</font>', cell_style)
 		if label_text == "Good":
-			return Paragraph(f'<font color="white" backColor="#008000">{value_text}</font>', readiness_score_style)
+			return Paragraph(f'<font color="white" backColor="#008000">{value_text}</font>', cell_style)
 		if label_text == "Poor":
-			return Paragraph(f'<font color="black" backColor="#FFFF00">{value_text}</font>', readiness_score_style)
+			return Paragraph(f'<font color="black" backColor="#FFFF00">{value_text}</font>', cell_style)
 		if label_text == "Fail":
-			return Paragraph(f'<font color="white" backColor="#800000">{value_text}</font>', readiness_score_style)
-		return Paragraph(value_text, readiness_score_style)
+			return Paragraph(f'<font color="white" backColor="#800000">{value_text}</font>', cell_style)
+		return Paragraph(value_text, cell_style)
 
 	def readiness_score_cell(row: dict[str, str]):
-		return readiness_label_cell(row["score"], row.get("label", ""))
+		return readiness_label_cell(row["score"], row.get("grade_prefix", row.get("label", "")))
+
+	def readiness_settings_category_cell(row: dict[str, str]):
+		if row.get("grade_prefix"):
+			return readiness_label_cell(row["category"], row["grade_prefix"], readiness_settings_style)
+		return Paragraph(row["category"], styles["BodyText"])
 
 	def build_contents_table(contents_rows):
 		contents_table_rows = [[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)]]
@@ -1676,14 +1723,14 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			],
 			*[
 				[
-					Paragraph(row["category"], styles["BodyText"]),
-					readiness_label_cell(row["setting"]),
+					readiness_settings_category_cell(row),
+					readiness_label_cell(row["setting"], cell_style=readiness_settings_style),
 				]
 				for row in report_data["cyber_readiness_settings_rows"]
 			],
 		],
 		hAlign="LEFT",
-		colWidths=[300, 160],
+		colWidths=[210, 190],
 	)
 	cyber_readiness_settings_table.setStyle(
 		TableStyle(
@@ -1693,7 +1740,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
 				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
 				("ALIGN", (0, 0), (-1, 0), "CENTER"),
-				("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+				("ALIGN", (1, 1), (-1, -1), "LEFT"),
 				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
 			]
 		)
@@ -2405,22 +2452,19 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	document = SectionPageNumberDocTemplate(
 		str(output_path),
 		pagesize=letter,
-		title=REPORT_TITLE,
+		title=report_data["report_title"],
 		author="OpenRMF Professional External API Scripts",
 	)
 	story = [
-		Paragraph(REPORT_TITLE, styles["Title"]),
-		Spacer(1, 24),
-		Paragraph("Risk Profiler", styles["Heading1"]),
-		Spacer(1, 12),
-		Paragraph(f"Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
+		Paragraph(report_data["report_title"], styles["Title"]),
+		Spacer(1, 18),
+		Paragraph(f"Date Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
 		Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
+		Paragraph(f"System Title: {html.escape(report_data['system_title'])}", styles["Normal"]),
 		Paragraph(f"Description: {html.escape(report_data['system_description'])}", styles["Normal"]),
 		Paragraph(f"Framework Title: {html.escape(report_data['framework_title'])}", styles["Normal"]),
 		Paragraph(f"Framework Version: {html.escape(report_data['framework_version'])}", styles["Normal"]),
 		Spacer(1, 18),
-		Paragraph("Table of Contents", styles["Heading2"]),
-		Spacer(1, 8),
 		contents_table,
 		PageBreak(),
 		anchored_heading("Checklist Risk", "checklist-risk"),
@@ -2602,7 +2646,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	measurement_document = SectionPageNumberDocTemplate(
 		measurement_buffer,
 		pagesize=letter,
-		title=REPORT_TITLE,
+		title=report_data["report_title"],
 		author="OpenRMF Professional External API Scripts",
 	)
 	measurement_document.build(copy.deepcopy(story))
@@ -2673,7 +2717,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	)
 	if report_data["cyber_readiness_settings_rows"]:
 		for row in report_data["cyber_readiness_settings_rows"]:
-			cyber_readiness_score_lines.append(f"{row['category']} | {row['setting']}")
+			cyber_readiness_score_lines.append(f"{row['category']} | {safe_text(row['setting']).replace(chr(10), '; ')}")
 	else:
 		cyber_readiness_score_lines.append("Readiness settings data was not returned.")
 	checklist_missing_data_risk_area = report_data["checklist_missing_data_risk_area"]
@@ -2865,17 +2909,16 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	pps_boundaries_risk_lines.extend(["", *pps_listing_risk_lines])
 	risk_settings_lines = ["Risk Settings", ""]
 	risk_settings_lines.extend([f"{row['key']}: {row['value']}" for row in report_data["risk_settings_rows"]])
-	contents_lines = ["Table of Contents", "Page Title                                      Page Number", "--------------------------------------------  -----------"]
+	contents_lines = ["Page Title                                      Page Number", "--------------------------------------------  -----------"]
 	contents_lines.extend([f"{row['title']:<44}  {row['page_number']:>11}" for row in report_data["table_of_contents_rows"]])
 	page_streams = [
 		make_text_page(
 			[
-			REPORT_TITLE,
+			report_data["report_title"],
 			"",
-			"Risk Profiler",
-			"",
-			f"Generated: {report_data['generated_at']}",
+			f"Date Generated: {report_data['generated_at']}",
 			f"System Key: {report_data['system_key']}",
+			f"System Title: {report_data['system_title']}",
 			f"Description: {report_data['system_description']}",
 			f"Framework Title: {report_data['framework_title']}",
 			f"Framework Version: {report_data['framework_version']}",
