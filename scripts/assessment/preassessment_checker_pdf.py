@@ -8,12 +8,6 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-	sys.path.insert(0, str(SCRIPT_DIR))
-
-from assessment_settings import ASSESSMENT_SETTINGS
-
 REQUIRED_ARGUMENT_COUNT = 5
 SYSTEM_PACKAGE_SCRIPT_NAME = "get_systempackage_by_systemkey_json.py"
 CHECKLISTS_SCRIPT_NAME = "get_systempackage_by_systemkey_checklists_json.py"
@@ -794,18 +788,8 @@ def build_report_data(system_key: str, system_package, checklists, hardware, com
 		"checklist_count": str(count_records(checklists)),
 		"hardware_count": str(count_records(hardware)),
 		"check_rows": build_preassessment_check_rows(system_package, hardware, compliance_data, control_score_data, poam_data, patch_score_data, approved_pps_data, tech_vulnerability_data, checklist_missing_data),
-		"assessment_settings_rows": build_assessment_settings_rows(),
 		"generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
 	}
-
-
-def build_assessment_settings_rows() -> list[dict[str, str]]:
-	if isinstance(ASSESSMENT_SETTINGS, dict):
-		return [{"value": safe_text(value)} for value in ASSESSMENT_SETTINGS.values()]
-	return [
-		{"value": safe_text(value)}
-		for value in sorted(ASSESSMENT_SETTINGS, key=safe_text)
-	]
 
 
 def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> bool:
@@ -837,7 +821,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		[
 			[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)],
 			[contents_link("Items Checked", "items-checked"), "2"],
-			[contents_link("Assessment Settings", "assessment-settings"), "3"],
 		],
 		hAlign="LEFT",
 		colWidths=[360, 100],
@@ -883,30 +866,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
-	assessment_settings_table = Table(
-		[
-			["Assessment Settings"],
-			*[[Paragraph(row["value"], styles["BodyText"])] for row in report_data["assessment_settings_rows"]],
-		],
-		hAlign="LEFT",
-		colWidths=[480],
-		repeatRows=1,
-	)
-	assessment_settings_table.setStyle(
-		TableStyle(
-			[
-				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-				("ALIGN", (0, 0), (-1, 0), "CENTER"),
-				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-				("LEFTPADDING", (0, 0), (-1, -1), 8),
-				("RIGHTPADDING", (0, 0), (-1, -1), 8),
-				("TOPPADDING", (0, 0), (-1, -1), 6),
-				("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-			]
-		)
-	)
 	document = SimpleDocTemplate(
 		str(output_path),
 		pagesize=letter,
@@ -928,10 +887,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		Paragraph('<a name="items-checked"/>Items Checked', styles["Heading1"]),
 		Spacer(1, 12),
 		check_table,
-		PageBreak(),
-		Paragraph('<a name="assessment-settings"/>Assessment Settings', styles["Heading1"]),
-		Spacer(1, 12),
-		assessment_settings_table,
 	]
 	document.build(story)
 	return True
@@ -971,7 +926,6 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		"Page Title                                      Page Number",
 		"--------------------------------------------  -----------",
 		"Items Checked                                           2",
-		"Assessment Settings                                     3",
 	]
 	page_two_lines = ["Items Checked", "", "Items Checked                                                        Pass/Fail", "------------------------------------------------------------------  ---------"]
 	for row in report_data["check_rows"]:
@@ -979,9 +933,6 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		for index, item_line in enumerate(wrapped_item_lines):
 			result_value = row["result"].upper() if index == 0 else ""
 			page_two_lines.append(f"{item_line:<66}  {result_value:>9}")
-	page_three_lines = ["Assessment Settings", "", "Assessment Settings", "--------------------------------------------------"]
-	for row in report_data["assessment_settings_rows"]:
-		page_three_lines.extend(wrap_pdf_line(row["value"]))
 
 	def make_text_stream(lines: list[str]) -> str:
 		wrapped_lines = []
@@ -996,7 +947,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		stream_lines.append("ET")
 		return "\n".join(stream_lines)
 
-	page_streams = [make_text_stream(page_one_lines), make_text_stream(page_two_lines), make_text_stream(page_three_lines)]
+	page_streams = [make_text_stream(page_one_lines), make_text_stream(page_two_lines)]
 
 	objects = [
 		b"<< /Type /Catalog /Pages 2 0 R >>",
