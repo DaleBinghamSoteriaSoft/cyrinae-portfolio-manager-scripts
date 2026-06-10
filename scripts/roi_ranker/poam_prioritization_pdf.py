@@ -200,20 +200,8 @@ def security_check_value(record: dict) -> str:
 	return first_value(record, ["securityChecks", "securityCheck", "securityControlNumber", "control", "controlNumber", "vulnerabilityId", "vulnId", "vulnIdString"]) or "Not Set"
 
 
-def poam_source_value(record: dict) -> str:
-	if first_value(record, ["artifactId"]):
-		return "Checklist"
-	if first_value(record, ["patchScanId"]):
-		return "Patch"
-	if first_value(record, ["vulnScanId"]):
-		return "Technology"
-	if first_value(record, ["statementId"]):
-		return "Statement"
-	if first_value(record, ["inheritedControlId"]):
-		return "Inherited"
-	if record.get("manuallyAdded") is True:
-		return "Manual"
-	return "Unknown"
+def poam_source_detail_value(record: dict) -> str:
+	return first_value(record, ["sourceIdControlVulnerability"]) or "Not Set"
 
 
 def device_name_from_value(value) -> str:
@@ -288,7 +276,7 @@ def build_impact_rows(poam_data) -> list[dict[str, str]]:
 		if poam_status(record) != "Ongoing":
 			continue
 		security_check = security_check_value(record)
-		source_value = poam_source_value(record)
+		source_detail = poam_source_detail_value(record)
 		raw_value = raw_severity(record)
 		residual_value = residual_risk_level_mitigation(record)
 		severity_value = residual_value or raw_value
@@ -299,14 +287,14 @@ def build_impact_rows(poam_data) -> list[dict[str, str]]:
 		if key not in grouped_rows:
 			grouped_rows[key] = {
 				"security_check": security_check,
-				"sources": set(),
+				"source_details": set(),
 				"devices": set(),
 				"unnamed_device_count": 0,
 				"severity": severity_value,
 				"weight": weight,
 				"impact_score": 0,
 			}
-		grouped_rows[key]["sources"].add(source_value)
+		grouped_rows[key]["source_details"].add(source_detail)
 		grouped_rows[key]["devices"].update(device_values)
 		grouped_rows[key]["unnamed_device_count"] = int(grouped_rows[key]["unnamed_device_count"]) + unnamed_count
 
@@ -318,7 +306,7 @@ def build_impact_rows(poam_data) -> list[dict[str, str]]:
 	return [
 		{
 			"security_check": truncate_cell_text(row["security_check"], MAX_SECURITY_CHECK_TEXT_LENGTH),
-			"source": ", ".join(sorted(row["sources"])),
+			"source": truncate_cell_text(", ".join(sorted(row["source_details"])), MAX_SECURITY_CHECK_TEXT_LENGTH),
 			"device_count": safe_text(row["device_count"]),
 			"severity": safe_text(row["severity"]),
 			"impact_score": safe_text(row["impact_score"]),
@@ -426,7 +414,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 				row["impact_score"],
 			]
 		)
-	impact_table = Table(impact_table_rows, colWidths=[190, 80, 65, 80, 105], hAlign="LEFT", repeatRows=1)
+	impact_table = Table(impact_table_rows, colWidths=[165, 170, 60, 70, 55], hAlign="LEFT", repeatRows=1)
 	impact_table.setStyle(
 		TableStyle(
 			[
