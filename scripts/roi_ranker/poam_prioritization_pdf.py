@@ -200,8 +200,24 @@ def security_check_value(record: dict) -> str:
 	return first_value(record, ["securityChecks", "securityCheck", "securityControlNumber", "control", "controlNumber", "vulnerabilityId", "vulnId", "vulnIdString"]) or "Not Set"
 
 
+def normalize_poam_source_detail(value: str) -> str:
+	value_text = safe_text(value).strip()
+	if not value_text:
+		return ""
+	value_text = re.sub(r"\bSecurity\s+Technical\s+Implementation\s+Guides?\b", "STIG", value_text, flags=re.IGNORECASE)
+	value_text = re.sub(r"\bstigs\b", "STIGs", value_text, flags=re.IGNORECASE)
+	value_text = re.sub(r"\bstig\b", "STIG", value_text, flags=re.IGNORECASE)
+	value_text = re.sub(r"\s*[-–—]\s*", " - ", value_text)
+	value_text = re.sub(r"\s*/\s*", "/", value_text)
+	value_text = re.sub(r"\s+", " ", value_text).strip()
+	value_text = re.sub(r"\s+\((?:V|SV|CCI)\s*-\s*[^)]*\)$", "", value_text, flags=re.IGNORECASE)
+	value_text = re.sub(r"\s+\((?:Rule|Group|Benchmark|Profile)\s+ID\s*:[^)]*\)$", "", value_text, flags=re.IGNORECASE)
+	return value_text
+
+
 def poam_source_detail_value(record: dict) -> str:
-	return first_value(record, ["sourceIdControlVulnerability"]) or "Not Set"
+	return normalize_poam_source_detail(first_value(record, ["sourceIdControlVulnerability"])) or "Not Set"
+
 
 
 def device_name_from_value(value) -> str:
