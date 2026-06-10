@@ -378,7 +378,7 @@ def hardware_patch_scan_value(record: dict) -> str:
 
 
 def hardware_checklists_value(record: dict) -> str:
-	return first_value(record, ["checklists", "hasChecklists", "checklist", "hasChecklist", "checklistAvailable"])
+	return first_value(record, ["checklist", "hasChecklist", "checklistAvailable", "checklists", "hasChecklists"])
 
 
 def has_json_data(data) -> bool:
@@ -393,14 +393,14 @@ def build_control_evidence_check_row(compliance_data, control_score_data) -> dic
 	compliance_id = extract_compliance_id(compliance_data)
 	if not compliance_id:
 		return {
-			"item": "Has all controls with evidence and no 0% complete / 0% open score",
+			"item": "All controls with evidence and no 0% complete / 0% open score",
 			"passed": False,
 			"result": "Fail",
 			"details": "Compliance is not generated or compliance ID was not found",
 		}
 	if control_score_data is None:
 		return {
-			"item": "Has all controls with evidence and no 0% complete / 0% open score",
+			"item": "All controls with evidence and no 0% complete / 0% open score",
 			"passed": False,
 			"result": "Fail",
 			"details": "All control compliance scores unavailable",
@@ -424,7 +424,7 @@ def build_control_evidence_check_row(compliance_data, control_score_data) -> dic
 	else:
 		details = f"{controls_without_data} of {controls_with_percentages} controls have 0% complete and 0% open"
 	return {
-		"item": "Has all controls with evidence and no 0% complete / 0% open score",
+		"item": "All controls with evidence and no 0% complete / 0% open score",
 		"passed": passed,
 		"result": "Pass" if passed else "Fail",
 		"details": details,
@@ -434,7 +434,7 @@ def build_control_evidence_check_row(compliance_data, control_score_data) -> dic
 def build_poam_generated_check_row(poam_data) -> dict[str, str]:
 	passed = has_json_data(poam_data)
 	return {
-		"item": "Has a POAM generated",
+		"item": "POAM is generated",
 		"passed": passed,
 		"result": "Pass" if passed else "Fail",
 		"details": "POAM data returned" if passed else "POAM data unavailable or not generated",
@@ -470,7 +470,7 @@ def build_poam_activity_age_check_row(poam_data) -> dict[str, str]:
 def build_poam_overdue_check_row(poam_data) -> dict[str, str]:
 	if not has_json_data(poam_data):
 		return {
-			"item": "Has no ongoing POAM items past scheduled completion date",
+			"item": "No ongoing POAM items past scheduled completion date",
 			"passed": False,
 			"result": "Fail",
 			"details": "POAM data unavailable or not generated",
@@ -489,7 +489,7 @@ def build_poam_overdue_check_row(poam_data) -> dict[str, str]:
 			past_due_count += 1
 	passed = past_due_count == 0
 	return {
-		"item": "Has no ongoing POAM items past scheduled completion date",
+		"item": "No ongoing POAM items are past scheduled completion date",
 		"passed": passed,
 		"result": "Pass" if passed else "Fail",
 		"details": f"{past_due_count} overdue of {scheduled_count} scheduled ongoing POAM items as of {today.isoformat()}",
@@ -499,7 +499,7 @@ def build_poam_overdue_check_row(poam_data) -> dict[str, str]:
 def build_patch_critical_open_check_row(patch_score_data) -> dict[str, str]:
 	if patch_score_data is None:
 		return {
-			"item": "Has no critical open patch vulnerabilities when patch scans are present",
+			"item": "No critical open patch vulnerabilities when patch scans are present",
 			"passed": False,
 			"result": "Fail",
 			"details": "Patch score data unavailable",
@@ -508,7 +508,7 @@ def build_patch_critical_open_check_row(patch_score_data) -> dict[str, str]:
 	contains_patch_scans = bool_value(first_json_value_by_normalized_key(patch_score_data, {"containspatchscans"}))
 	if not contains_patch_scans:
 		return {
-			"item": "Has no critical open patch vulnerabilities when patch scans are present",
+			"item": "No critical open patch vulnerabilities when patch scans are present",
 			"passed": True,
 			"result": "Pass",
 			"details": "containsPatchScans is not true",
@@ -531,7 +531,7 @@ def build_patch_critical_open_check_row(patch_score_data) -> dict[str, str]:
 def build_approved_pps_check_row(approved_pps_data) -> dict[str, str]:
 	passed = has_json_data(approved_pps_data)
 	return {
-		"item": "Has an approved ports list loaded",
+		"item": "Approved ports list is loaded",
 		"passed": passed,
 		"result": "Pass" if passed else "Fail",
 		"details": "Approved ports list returned" if passed else "Approved ports list unavailable or not loaded",
@@ -561,7 +561,7 @@ def build_checklist_not_reviewed_check_row(system_package) -> dict[str, str]:
 	contains_checklists = bool_value(first_json_value_by_normalized_key(system_package, {"containschecklists"}))
 	if not contains_checklists:
 		return {
-			"item": "Has no checklist vulnerabilities marked Not Reviewed when checklists are present",
+			"item": "No checklist vulnerabilities marked Not Reviewed when checklists are present",
 			"passed": True,
 			"result": "Pass",
 			"details": "containsChecklists is not true",
@@ -569,7 +569,7 @@ def build_checklist_not_reviewed_check_row(system_package) -> dict[str, str]:
 	not_reviewed_count = checklist_not_reviewed_count(system_package)
 	passed = not_reviewed_count == 0
 	return {
-		"item": "Has no checklist vulnerabilities marked Not Reviewed when checklists are present",
+		"item": "No checklist vulnerabilities marked Not Reviewed when checklists are present",
 		"passed": passed,
 		"result": "Pass" if passed else "Fail",
 		"details": f"Not Reviewed checklist vulnerabilities: {not_reviewed_count}",
@@ -580,14 +580,14 @@ def build_tech_critical_vulnerability_check_row(system_package, tech_vulnerabili
 	contains_other_technologies = bool_value(first_json_value_by_normalized_key(system_package, {"containsothertechnologies"}))
 	if not contains_other_technologies:
 		return {
-			"item": "Has no critical other technology vulnerabilities when other technologies are present",
+			"item": "No critical other technology vulnerabilities when other technologies are present",
 			"passed": True,
 			"result": "Pass",
 			"details": "containsOtherTechnologies is not true",
 		}
 	if tech_vulnerability_data is None:
 		return {
-			"item": "Has no critical other technology vulnerabilities when other technologies are present",
+			"item": "No critical other technology vulnerabilities when other technologies are present",
 			"passed": False,
 			"result": "Fail",
 			"details": "Critical other technology vulnerability data unavailable",
@@ -595,7 +595,7 @@ def build_tech_critical_vulnerability_check_row(system_package, tech_vulnerabili
 	critical_count = len(tech_vulnerability_records(tech_vulnerability_data))
 	passed = critical_count == 0
 	return {
-		"item": "Has no critical other technology vulnerabilities when other technologies are present",
+		"item": "No critical other technology vulnerabilities when other technologies are present",
 		"passed": passed,
 		"result": "Pass" if passed else "Fail",
 		"details": f"Critical other technology vulnerabilities: {critical_count}",
@@ -606,14 +606,14 @@ def build_checklist_missing_comments_check_row(system_package, checklist_missing
 	contains_checklists = bool_value(first_json_value_by_normalized_key(system_package, {"containschecklists"}))
 	if not contains_checklists:
 		return {
-			"item": "Has no checklist checklists missing comments and details",
+			"item": "No checklists missing comments or details",
 			"passed": True,
 			"result": "Pass",
 			"details": "containsChecklists is not true",
 		}
 	if checklist_missing_data is None:
 		return {
-			"item": "Has no checklist checklists missing comments and details",
+			"item": "No checklists missing comments or details",
 			"passed": False,
 			"result": "Fail",
 			"details": "Checklist missing data unavailable",
@@ -621,7 +621,7 @@ def build_checklist_missing_comments_check_row(system_package, checklist_missing
 	missing_items = checklist_missing_data_items(checklist_missing_data)
 	passed = len(missing_items) == 0
 	return {
-		"item": "Has no checklist checklists missing comments and details",
+		"item": "No checklists missing comments or details",
 		"passed": passed,
 		"result": "Pass" if passed else "Fail",
 		"details": f"Missing comments/details items: {len(missing_items)}",
@@ -629,19 +629,10 @@ def build_checklist_missing_comments_check_row(system_package, checklist_missing
 
 
 def build_hardware_scan_coverage_check_row(system_package, hardware_data) -> dict[str, str]:
-	contains_patch_scans = bool_value(first_json_value_by_normalized_key(system_package, {"containspatchscans"}))
-	contains_checklists = bool_value(first_json_value_by_normalized_key(system_package, {"containschecklists"}))
-	if not contains_patch_scans or not contains_checklists:
-		return {
-			"item": "Has no missing checklist and no missing hardware patch scan",
-			"passed": True,
-			"result": "Pass",
-			"details": "containsPatchScans and containsChecklists are not both true",
-		}
 	records = hardware_records(hardware_data)
 	if not records:
 		return {
-			"item": "Has no missing checklist and no missing hardware patch scan",
+			"item": "No missing checklist or hardware patch scan",
 			"passed": False,
 			"result": "Fail",
 			"details": "Hardware data unavailable or empty",
@@ -650,7 +641,7 @@ def build_hardware_scan_coverage_check_row(system_package, hardware_data) -> dic
 	missing_patch_scan_count = sum(1 for record in records if not bool_value(hardware_patch_scan_value(record)))
 	passed = missing_checklist_count == 0 and missing_patch_scan_count == 0
 	return {
-		"item": "Has no missing checklist and no missing hardware patch scan",
+		"item": "No missing checklist or hardware patch scan",
 		"passed": passed,
 		"result": "Pass" if passed else "Fail",
 		"details": f"Missing checklist: {missing_checklist_count}; missing patch scan: {missing_patch_scan_count}; hardware checked: {len(records)}",
@@ -664,7 +655,7 @@ def build_preassessment_check_rows(system_package, hardware, compliance_data, co
 	details = f"Last generated: {generated_date.isoformat()}" if generated_date else "No generated date found"
 	return [
 		{
-			"item": "Has a compliance generated within the last 30 days",
+			"item": "Compliance generated within the last 30 days",
 			"passed": passed,
 			"result": "Pass" if passed else "Fail",
 			"details": details,
@@ -807,37 +798,10 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 	result_style = styles["BodyText"].clone("PreAssessmentResult")
 	result_style.alignment = 1
 	item_style = styles["BodyText"].clone("PreAssessmentItem")
-	contents_link_style = styles["BodyText"].clone("ContentsLink")
-	contents_link_style.textColor = colors.blue
 	detail_style = styles["BodyText"].clone("PreAssessmentDetail")
 	detail_style.fontSize = 8
 	detail_style.leading = 10
 	detail_style.textColor = colors.HexColor("#555555")
-
-	def contents_link(title: str, anchor: str):
-		return Paragraph(f'<a href="#{html.escape(anchor, quote=True)}" color="blue">{html.escape(title)}</a>', contents_link_style)
-
-	contents_table = Table(
-		[
-			[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)],
-			[contents_link("Items Checked", "items-checked"), "2"],
-		],
-		hAlign="LEFT",
-		colWidths=[360, 100],
-		repeatRows=1,
-	)
-	contents_table.setStyle(
-		TableStyle(
-			[
-				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-				("ALIGN", (0, 0), (-1, 0), "CENTER"),
-				("ALIGN", (1, 1), (1, -1), "RIGHT"),
-				("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-			]
-		)
-	)
 
 	check_table_rows = [
 		[Paragraph("Items Checked", table_header_style), Paragraph("Pass/Fail", table_header_style)],
@@ -881,8 +845,6 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		Paragraph(f"Description: {html.escape(report_data['system_description'])}", styles["Normal"]),
 		Paragraph(f"Total Number of Checklists: {html.escape(report_data['checklist_count'])}", styles["Normal"]),
 		Paragraph(f"Total Number of Hardware: {html.escape(report_data['hardware_count'])}", styles["Normal"]),
-		Spacer(1, 18),
-		contents_table,
 		PageBreak(),
 		Paragraph('<a name="items-checked"/>Items Checked', styles["Heading1"]),
 		Spacer(1, 12),
@@ -922,10 +884,6 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		f"Description: {report_data['system_description']}",
 		f"Total Number of Checklists: {report_data['checklist_count']}",
 		f"Total Number of Hardware: {report_data['hardware_count']}",
-		"",
-		"Page Title                                      Page Number",
-		"--------------------------------------------  -----------",
-		"Items Checked                                           2",
 	]
 	page_two_lines = ["Items Checked", "", "Items Checked                                                        Pass/Fail", "------------------------------------------------------------------  ---------"]
 	for row in report_data["check_rows"]:
