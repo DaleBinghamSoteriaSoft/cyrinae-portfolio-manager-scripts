@@ -529,8 +529,8 @@ def build_overall_compliance_risk_rows(percentage_pairs: list[tuple[float, float
 	complete_medium_risk_max = risk_setting_percent("minCompliancePercentCompleteMediumRisk")
 	if not percentage_pairs:
 		return [
-			{"title": "Compliance Percent Complete Risk", "risk": "High"},
-			{"title": "Open Compliance Risk", "risk": "High"},
+			{"title": "Compliance Percent Complete Risk", "value": "N/A", "risk": "High"},
+			{"title": "Open Compliance Risk", "value": "N/A", "risk": "High"},
 		]
 	percentage_open_values = [percentage_open for percentage_open, _ in percentage_pairs]
 	percentage_complete_values = [percentage_complete for _, percentage_complete in percentage_pairs]
@@ -547,8 +547,8 @@ def build_overall_compliance_risk_rows(percentage_pairs: list[tuple[float, float
 	else:
 		open_risk = "Low"
 	return [
-		{"title": "Compliance Percent Complete Risk", "risk": complete_risk},
-		{"title": "Open Compliance Risk", "risk": open_risk},
+		{"title": "Compliance Percent Complete Risk", "value": f"{min(percentage_complete_values):.1f}%", "risk": complete_risk},
+		{"title": "Open Compliance Risk", "value": f"{max(percentage_open_values):.1f}%", "risk": open_risk},
 	]
 
 
@@ -1165,6 +1165,8 @@ def checklist_missing_data_items(missingdata) -> list:
 		value = missingdata.get(key)
 		if isinstance(value, list):
 			return value
+		if isinstance(value, dict):
+			return [value] if value else []
 	return [missingdata] if missingdata else []
 
 
@@ -1176,12 +1178,13 @@ def build_checklist_missing_data_risk_area(missingdata) -> dict[str, str]:
 			"returned_count": "0",
 		}
 	items = checklist_missing_data_items(missingdata)
-	risk = "High" if items else "Low"
-	status = "Missing Data Returned" if items else "Empty Array Returned"
+	returned_count = len(items)
+	risk = "High" if returned_count else "Low"
+	status = "Missing Data Returned" if returned_count else "Empty Array Returned"
 	return {
 		"risk": risk,
 		"status": status,
-		"returned_count": str(len(items)),
+		"returned_count": str(returned_count),
 	}
 
 
@@ -1246,7 +1249,7 @@ def build_cat_status_rows(system_package: dict) -> list[dict[str, str]]:
 		},
 		{
 			"category": "Total",
-			"open": "",
+			"open": score_value(score, "totalOpen"),
 			"not_reviewed": score_value(score, "totalNotReviewed"),
 			"not_a_finding": score_value(score, "totalNotAFinding"),
 			"not_applicable": score_value(score, "totalNotApplicable"),
@@ -1914,7 +1917,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		[
 			[
 				Paragraph("POAM Status Type", table_header_style),
-				Paragraph("rawSeverity Count", table_header_style),
+				Paragraph("Count", table_header_style),
 				Paragraph("Risk", table_header_style),
 			],
 			*[
@@ -2219,25 +2222,27 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		[
 			[
 				Paragraph("Compliance Risk Type", table_header_style),
+				Paragraph("Value", table_header_style),
 				Paragraph("Risk", table_header_style),
 			],
 			*[
 				[
 					Paragraph(row["title"], styles["BodyText"]),
+					row["value"],
 					row["risk"],
 				]
 				for row in report_data["overall_compliance_risk_rows"]
 			],
 		],
 		hAlign="LEFT",
-		colWidths=[330, 90],
+		colWidths=[260, 90, 90],
 	)
 	overall_compliance_risk_style = [
 		("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
 		("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
 		("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
 		("ALIGN", (0, 0), (-1, 0), "CENTER"),
-		("ALIGN", (1, 1), (1, -1), "RIGHT"),
+		("ALIGN", (1, 1), (-1, -1), "RIGHT"),
 		("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
 	]
 	for row_index, row in enumerate(report_data["overall_compliance_risk_rows"], start=1):
@@ -2251,8 +2256,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			risk_text_color = colors.black
 		overall_compliance_risk_style.extend(
 			[
-				("BACKGROUND", (1, row_index), (1, row_index), risk_color),
-				("TEXTCOLOR", (1, row_index), (1, row_index), risk_text_color),
+				("BACKGROUND", (2, row_index), (2, row_index), risk_color),
+				("TEXTCOLOR", (2, row_index), (2, row_index), risk_text_color),
 			]
 		)
 	overall_compliance_risk_table.setStyle(TableStyle(overall_compliance_risk_style))
@@ -2783,8 +2788,8 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		[
 			"",
 			"Overall POAM Status",
-			"POAM Status Type | rawSeverity Count | Risk",
-			"---------------- | ----------------- | ----",
+			"POAM Status Type | Count | Risk",
+			"---------------- | ----- | ----",
 		]
 	)
 	for row in report_data["overall_poam_status_rows"]:
@@ -2870,12 +2875,12 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		[
 			"",
 			"Overall Compliance Risk",
-			"Compliance Risk Type | Risk",
-			"-------------------- | ----",
+			"Compliance Risk Type | Value | Risk",
+			"-------------------- | ----- | ----",
 		]
 	)
 	for row in report_data["overall_compliance_risk_rows"]:
-		compliance_risk_lines.append(f"{row['title']} | {row['risk']}")
+		compliance_risk_lines.append(f"{row['title']} | {row['value']} | {row['risk']}")
 	compliance_control_score_risk_area = report_data["compliance_control_score_risk_area"]
 	compliance_risk_lines.extend([
 		"",
