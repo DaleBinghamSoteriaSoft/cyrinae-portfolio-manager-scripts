@@ -1150,7 +1150,10 @@ def build_pps_listing_risk_area(approved_pps_listing: dict | None) -> dict[str, 
 
 def load_checklist_missing_data(arguments: list[str]):
 	missingdata_script = Path(__file__).resolve().parents[1] / "checklist" / CHECKLIST_MISSINGDATA_SCRIPT_NAME
-	missingdata_result = call_child_script_result(missingdata_script, arguments)
+	missingdata_result = call_child_script_result(
+		missingdata_script,
+		[*arguments, "notreviewed=false", "open=false", "page=1", "limit=500"],
+	)
 	if missingdata_result.returncode != 0:
 		return None
 	return parse_json_value_from_output_or_none(missingdata_result.stdout)
