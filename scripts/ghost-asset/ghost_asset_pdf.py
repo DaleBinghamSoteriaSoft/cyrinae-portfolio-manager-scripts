@@ -19,8 +19,10 @@ SYSTEM_PACKAGE_SCRIPT_NAME = "get_systempackage_by_systemkey_json.py"
 HARDWARE_SCRIPT_NAME = "get_systempackage_by_systemkey_hardware_json.py"
 PATCH_DATA_SCRIPT_NAME = "get_systempackage_by_systemkey_patchdata_json.py"
 CHECKLIST_SCRIPT_NAME = "get_systempackage_by_systemkey_checklists_json.py"
+PPSM_SCRIPT_NAME = "get_systempackage_by_systemkey_ppsm_json.py"
 DEFAULT_CHECKLIST_LIMIT = 5000
 DEFAULT_TOP_ROWS = 40
+DEFAULT_COVER_HARDWARE_LIMIT = 12
 
 HOSTNAME_KEYS = [
 	"hostname",
@@ -182,6 +184,10 @@ def call_checklist_json_script(arguments: list[str], options: dict[str, str]) ->
 	if not any(argument.startswith("page=") for argument in checklist_arguments[4:]):
 		checklist_arguments.append("page=1")
 	return call_json_script("checklist", CHECKLIST_SCRIPT_NAME, checklist_arguments, "checklist")
+
+
+def call_ppsm_json_script(arguments: list[str]) -> str:
+	return call_json_script("ports-protocols-services", PPSM_SCRIPT_NAME, [*arguments, "groupby=false"], "PPSM")
 
 
 def parse_json_value_from_output(output: str):
@@ -400,6 +406,26 @@ def looks_like_patch_asset_record(value: dict) -> bool:
 	)
 
 
+def looks_like_ppsm_record(value: dict) -> bool:
+	if not (set(HOSTNAME_KEYS + IP_KEYS).intersection(value.keys()) or record_hostname(value) or extract_ips(value)):
+		return False
+	return bool(
+		{
+			"lowPortNumber",
+			"highPortNumber",
+			"portNumber",
+			"port",
+			"protocol",
+			"protocolName",
+			"serviceName",
+			"svcName",
+			"svc_name",
+			"ppsm",
+			"pps",
+		}.intersection(value.keys())
+	)
+
+
 def find_record_list(data, candidate_keys: list[str], record_predicate) -> list[dict]:
 	if isinstance(data, list):
 		records = [record for record in data if isinstance(record, dict)]
@@ -438,6 +464,10 @@ def checklist_records(checklist_data) -> list[dict]:
 
 def patch_asset_records(patch_data) -> list[dict]:
 	return find_record_list(patch_data, ["records", "items", "data", "results", "assets", "devices", "hosts", "patchData", "patches", "vulnerabilities"], looks_like_patch_asset_record)
+
+
+def ppsm_records(ppsm_data) -> list[dict]:
+	return find_record_list(ppsm_data, ["records", "items", "data", "results", "ppsm", "pps", "portsProtocolsServices", "ports", "assets", "devices", "hosts"], looks_like_ppsm_record)
 
 
 def pandas_module():
@@ -582,6 +612,28 @@ def build_patch_dataframe(pd, records: list[dict]):
 	return grouped.rename(columns={"display_name": "patch_name"}), skipped
 
 
+def build_ppsm_dataframe(pd, records: list[dict]):
+	rows, skipped = normalized_asset_rows(records, "PPSM")
+	for row in rows:
+		row["ppsm_present"] = bool(row["asset_key"])
+	dataframe = pd.json_normalize(rows) if rows else pd.DataFrame()
+	if dataframe.empty:
+		dataframe = pd.DataFrame(columns=["asset_key", "hostname", "ip_addresses", "display_name", "ppsm_present"])
+	dataframe = dataframe[dataframe["asset_key"].astype(str) != ""].copy()
+	if dataframe.empty:
+		return dataframe, skipped
+	grouped = dataframe.groupby("asset_key", as_index=False).agg(
+		{
+			"hostname": "first",
+			"ip_addresses": "first",
+			"display_name": "first",
+			"ppsm_present": "max",
+		}
+	)
+	counted = dataframe.groupby("asset_key").size().reset_index(name="ppsm_count")
+	return grouped.merge(counted, on="asset_key", how="left").rename(columns={"display_name": "ppsm_name"}), skipped
+
+
 def first_available_text(row, keys: list[str]) -> str:
 	for key in keys:
 		value = row.get(key, "")
@@ -590,33 +642,37 @@ def first_available_text(row, keys: list[str]) -> str:
 	return "Unknown"
 
 
-def build_ghost_asset_analysis(hardware_data, patch_data, checklist_data, options: dict[str, str]) -> dict[str, object]:
+def build_ghost_asset_analysis(hardware_data, patch_data, checklist_data, ppsm_data, options: dict[str, str]) -> dict[str, object]:
 	pd = pandas_module()
 	hardware_record_list = hardware_records(hardware_data)
 	checklist_record_list = checklist_records(checklist_data)
 	patch_record_list = patch_asset_records(patch_data)
+	ppsm_record_list = ppsm_records(ppsm_data)
 	hardware_df, hardware_skipped = build_hardware_dataframe(pd, hardware_record_list)
 	checklist_df, checklist_skipped = build_checklist_dataframe(pd, checklist_record_list)
 	patch_df, patch_skipped = build_patch_dataframe(pd, patch_record_list)
+	ppsm_df, ppsm_skipped = build_ppsm_dataframe(pd, ppsm_record_list)
 
 	merged = hardware_df.merge(checklist_df, on="asset_key", how="outer", indicator="hardware_checklist_join", suffixes=("_hardware", "_checklist"))
 	merged = merged.merge(patch_df, on="asset_key", how="outer", indicator="patch_join")
+	merged = merged.merge(ppsm_df, on="asset_key", how="outer", indicator="ppsm_join")
 	if merged.empty:
 		merged = pd.DataFrame(columns=["asset_key"])
 
-	for column in ["hardware_present", "checklist_present", "patch_present", "hardware_checklist_flag", "hardware_patch_scan_flag", "patch_scan_flag"]:
+	for column in ["hardware_present", "checklist_present", "patch_present", "ppsm_present", "hardware_checklist_flag", "hardware_patch_scan_flag", "patch_scan_flag"]:
 		if column not in merged.columns:
 			merged[column] = False
 		merged[column] = merged[column].fillna(False).astype(bool)
-	for column in ["hardware_checklist_count", "checklist_count", "patch_open_total"]:
+	for column in ["hardware_checklist_count", "checklist_count", "patch_open_total", "ppsm_count"]:
 		if column not in merged.columns:
 			merged[column] = 0
 		merged[column] = merged[column].fillna(0).astype(int)
 
-	merged["resolved_name"] = merged.apply(lambda row: first_available_text(row, ["hardware_name", "checklist_name", "patch_name", "hostname_hardware", "hostname_checklist", "hostname"]), axis=1)
-	merged["resolved_ips"] = merged.apply(lambda row: first_available_text(row, ["ip_addresses_hardware", "ip_addresses_checklist", "ip_addresses"]), axis=1)
+	merged["resolved_name"] = merged.apply(lambda row: first_available_text(row, ["hardware_name", "checklist_name", "patch_name", "ppsm_name", "hostname_hardware", "hostname_checklist", "hostname_x", "hostname_y", "hostname"]), axis=1)
+	merged["resolved_ips"] = merged.apply(lambda row: first_available_text(row, ["ip_addresses_hardware", "ip_addresses_checklist", "ip_addresses_x", "ip_addresses_y", "ip_addresses"]), axis=1)
 	merged["has_checklist_evidence"] = merged["hardware_checklist_flag"] | (merged["hardware_checklist_count"] > 0) | merged["checklist_present"] | (merged["checklist_count"] > 0)
 	merged["has_patch_evidence"] = merged["hardware_patch_scan_flag"] | merged["patch_present"] | merged["patch_scan_flag"]
+	merged["has_ppsm_evidence"] = merged["ppsm_present"]
 
 	def missing_sources(row) -> list[str]:
 		missing = []
@@ -626,19 +682,22 @@ def build_ghost_asset_analysis(hardware_data, patch_data, checklist_data, option
 			missing.append("Checklist Exists")
 		if not bool(row.get("hardware_present", False)):
 			missing.append("Hardware Exists")
+		if not bool(row.get("has_ppsm_evidence", False)):
+			missing.append("PPS")
 		return missing
 
 	def base_classification(row) -> str:
 		hardware_present = bool(row.get("hardware_present", False))
 		checklist_present = bool(row.get("has_checklist_evidence", False))
 		patch_present = bool(row.get("has_patch_evidence", False))
-		if hardware_present and checklist_present and patch_present:
-			return "Managed / Correlated"
-		if hardware_present and not checklist_present and not patch_present:
+		ppsm_present = bool(row.get("has_ppsm_evidence", False))
+		if hardware_present and checklist_present and patch_present and ppsm_present:
+			return "Complete"
+		if hardware_present and not checklist_present and not patch_present and not ppsm_present:
 			return "Ghost Asset"
-		if hardware_present and (checklist_present ^ patch_present):
+		if hardware_present:
 			return "Incomplete"
-		if not hardware_present and patch_present:
+		if not hardware_present and (patch_present or ppsm_present):
 			return "Unmanaged Asset"
 		if not hardware_present and checklist_present:
 			return "Orphaned Checklist Asset"
@@ -653,7 +712,7 @@ def build_ghost_asset_analysis(hardware_data, patch_data, checklist_data, option
 
 	merged["base_classification"] = merged.apply(base_classification, axis=1)
 	merged["classification"] = merged.apply(display_classification, axis=1)
-	merged.loc[~merged["hardware_present"] & (merged["has_checklist_evidence"] | merged["has_patch_evidence"]), "missing_inventory"] = True
+	merged.loc[~merged["hardware_present"] & (merged["has_checklist_evidence"] | merged["has_patch_evidence"] | merged["has_ppsm_evidence"]), "missing_inventory"] = True
 	merged["missing_inventory"] = merged.get("missing_inventory", False).fillna(False).astype(bool)
 
 	top_rows = max(1, optional_int(options, "topRows", DEFAULT_TOP_ROWS))
@@ -664,18 +723,20 @@ def build_ghost_asset_analysis(hardware_data, patch_data, checklist_data, option
 		rows = []
 		for _, row in dataframe.head(top_rows).iterrows():
 			checklist_count = int(row.get("checklist_count", 0) or row.get("hardware_checklist_count", 0) or 0)
-			patch_open_total = int(row.get("patch_open_total", 0) or 0)
+			ppsm_count = int(row.get("ppsm_count", 0) or 0)
 			hardware_present = bool(row.get("hardware_present", False))
 			checklist_present = bool(row.get("has_checklist_evidence", False))
 			patch_present = bool(row.get("has_patch_evidence", False))
+			ppsm_present = bool(row.get("has_ppsm_evidence", False))
 			rows.append(
 				{
 					"asset": first_available_text(row, ["resolved_name"]),
 					"ip_addresses": first_available_text(row, ["resolved_ips"]),
-					"patch": f"{yes_no(patch_present)} ({patch_open_total} open)",
+					"patch": yes_no(patch_present),
 					"checklist": f"{yes_no(checklist_present)} ({checklist_count})",
 					"hardware": yes_no(hardware_present),
-					"classification": row.get("classification", "Unknown"),
+					"ppsm": f"{yes_no(ppsm_present)} ({ppsm_count})",
+					"status": row.get("classification", "Unknown"),
 				}
 			)
 		return rows
@@ -690,21 +751,22 @@ def build_ghost_asset_analysis(hardware_data, patch_data, checklist_data, option
 		"Orphaned Checklist Asset": 2,
 		"Incomplete": 3,
 		"Uncorrelated Asset": 4,
-		"Managed / Correlated": 5,
+		"Complete": 5,
 	}
 	merged["classification_priority"] = merged["base_classification"].map(classification_priority).fillna(9).astype(int)
 	return {
 		"hardware_record_count": len(hardware_record_list),
 		"checklist_record_count": len(checklist_record_list),
 		"patch_asset_record_count": len(patch_record_list),
+		"ppsm_record_count": len(ppsm_record_list),
 		"asset_count": int(merged["asset_key"].astype(str).ne("").sum()) if "asset_key" in merged.columns else 0,
 		"ghost_asset_count": len(ghost_assets),
 		"unmanaged_asset_count": len(unmanaged_assets),
 		"orphaned_checklist_count": len(orphaned_checklists),
 		"missing_inventory_count": len(missing_inventory),
 		"evidence_rows": evidence_rows(merged.sort_values(["classification_priority", "resolved_name", "asset_key"])),
-		"skipped_record_count": len(hardware_skipped) + len(checklist_skipped) + len(patch_skipped),
-		"skipped_record_examples": (hardware_skipped + checklist_skipped + patch_skipped)[:8],
+		"skipped_record_count": len(hardware_skipped) + len(checklist_skipped) + len(patch_skipped) + len(ppsm_skipped),
+		"skipped_record_examples": (hardware_skipped + checklist_skipped + patch_skipped + ppsm_skipped)[:8],
 	}
 
 
@@ -726,14 +788,38 @@ def report_title_for_system(system_title: str) -> str:
 	return f"{safe_text(system_title).strip() or 'Unknown'} {REPORT_TITLE_SUFFIX}"
 
 
-def build_report_data(system_key: str, options: dict[str, str], system_package: dict, hardware_data, patch_data, checklist_data) -> dict[str, object]:
+def build_hardware_device_summary(hardware_data, options: dict[str, str]) -> dict[str, object]:
+	records = hardware_records(hardware_data)
+	cover_limit = max(1, optional_int(options, "coverHardwareLimit", DEFAULT_COVER_HARDWARE_LIMIT))
+	devices = []
+	seen_keys = set()
+	for index, record in enumerate(records):
+		identity_key = record_identity_key(record) or f"record:{index}"
+		if identity_key in seen_keys:
+			continue
+		seen_keys.add(identity_key)
+		devices.append(
+			{
+				"asset": record_display_name(record),
+			}
+		)
+	devices.sort(key=lambda row: normalized_value(row["asset"]))
+	return {
+		"total_count": len(devices),
+		"display_count": min(len(devices), cover_limit),
+		"devices": devices[:cover_limit],
+	}
+
+
+def build_report_data(system_key: str, options: dict[str, str], system_package: dict, hardware_data, patch_data, checklist_data, ppsm_data) -> dict[str, object]:
 	system_title = build_system_title(system_package, options)
 	return {
 		"system_key": system_key,
 		"system_title": system_title,
 		"report_title": report_title_for_system(system_title),
 		"system_description": build_system_description(system_package, options),
-		"ghost_asset_analysis": build_ghost_asset_analysis(hardware_data, patch_data, checklist_data, options),
+		"hardware_device_summary": build_hardware_device_summary(hardware_data, options),
+		"ghost_asset_analysis": build_ghost_asset_analysis(hardware_data, patch_data, checklist_data, ppsm_data, options),
 		"generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
 		"source_script": Path(__file__).name,
 	}
@@ -746,11 +832,19 @@ def truncated_text(value, max_length: int = 120) -> str:
 	return text[: max_length - 3].rstrip() + "..."
 
 
-def pdf_table(rows: list[list[str]], column_widths: list[int], styles, table_style):
+def pdf_table(rows: list[list[str]], column_widths: list[int], styles, table_style, center_header: bool = False):
 	from reportlab.platypus import Paragraph, Table  # pyright: ignore[reportMissingModuleSource]
 
+	header_style = styles["BodyText"].clone("CenteredHeaderText")
+	header_style.alignment = 1
 	table = Table(
-		[[Paragraph(html.escape(safe_text(cell)), styles["BodyText"]) for cell in row] for row in rows],
+		[
+			[
+				Paragraph(html.escape(safe_text(cell)), header_style if center_header and row_index == 0 else styles["BodyText"])
+				for cell in row
+			]
+			for row_index, row in enumerate(rows)
+		],
 		colWidths=column_widths,
 		style=table_style,
 		repeatRows=1,
@@ -759,17 +853,46 @@ def pdf_table(rows: list[list[str]], column_widths: list[int], styles, table_sty
 	return table
 
 
+def build_cover_hardware_section(summary: dict[str, object], styles, table_style):
+	from reportlab.platypus import Paragraph, Spacer  # pyright: ignore[reportMissingModuleSource]
+
+	total_count = int(summary.get("total_count", 0) or 0)
+	display_count = int(summary.get("display_count", 0) or 0)
+	devices = summary.get("devices", [])
+	table_rows = [["Hardware Device"]]
+	if isinstance(devices, list) and devices:
+		for device in devices:
+			if isinstance(device, dict):
+				table_rows.append([safe_text(device.get("asset", "Unknown"))])
+	else:
+		table_rows.append(["No hardware devices were found."])
+	section = [
+		Spacer(1, 12),
+		Paragraph("Total Number of Hardware Devices", styles["LeftHeading2"]),
+		Spacer(1, 6),
+		pdf_table(table_rows, [300], styles, table_style),
+	]
+	if total_count > display_count:
+		section.extend(
+			[
+				Spacer(1, 6),
+				Paragraph(f"Showing first {display_count} of {total_count} hardware devices.", styles["Normal"]),
+			]
+		)
+	return section
+
+
 def build_evidence_table(rows: list[dict[str, str]], styles, table_style):
 	from reportlab.platypus import Spacer  # pyright: ignore[reportMissingModuleSource]
 
-	table_rows = [["Asset", "IP Address(es)", "Patch Exists", "Checklist Exists", "Hardware Exists", "Classification"]]
+	table_rows = [["Asset", "IP Address", "Patch Exists", "Checklist Exists", "Hardware Exists", "PPS", "Status"]]
 	if rows:
 		for row in rows:
-			table_rows.append([row["asset"], row["ip_addresses"], row["patch"], row["checklist"], row["hardware"], row["classification"]])
+			table_rows.append([row["asset"], row["ip_addresses"], row["patch"], row["checklist"], row["hardware"], row["ppsm"], row["status"]])
 	else:
-		table_rows.append(["No correlated hardware, checklist, or patch evidence was found.", "", "", "", "", ""])
+		table_rows.append(["No correlated hardware, checklist, patch, or PPS evidence was found.", "", "", "", "", "", ""])
 	return [
-		pdf_table(table_rows, [105, 95, 75, 75, 65, 105], styles, table_style),
+		pdf_table(table_rows, [110, 105, 55, 70, 70, 60, 70], styles, table_style, center_header=True),
 		Spacer(1, 14),
 	]
 
@@ -782,9 +905,9 @@ def build_fallback_analysis_lines(analysis: dict[str, object]) -> list[str]:
 	evidence_rows = analysis.get("evidence_rows", [])
 	if isinstance(evidence_rows, list) and evidence_rows:
 		for row in evidence_rows:
-			lines.append(truncated_text(f"{row['asset']} | Patch Exists {row['patch']} | Checklist Exists {row['checklist']} | Hardware Exists {row['hardware']} | {row['classification']}", 88))
+			lines.append(truncated_text(f"{row['asset']} | Patch Exists {row['patch']} | Checklist Exists {row['checklist']} | Hardware Exists {row['hardware']} | PPS {row['ppsm']} | {row['status']}", 88))
 	else:
-		lines.append("No correlated hardware, checklist, or patch evidence was found.")
+		lines.append("No correlated hardware, checklist, patch, or PPS evidence was found.")
 	return lines
 
 
@@ -835,10 +958,17 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, object]) 
 		Paragraph(f"System Title: {html.escape(safe_text(report_data['system_title']))}", styles["Normal"]),
 		Paragraph(f"System Key: {html.escape(safe_text(report_data['system_key']))}", styles["Normal"]),
 		Paragraph(f"Description: {html.escape(safe_text(report_data['system_description']))}", styles["Normal"]),
+	]
+	hardware_summary = report_data.get("hardware_device_summary", {})
+	if isinstance(hardware_summary, dict):
+		story.extend(build_cover_hardware_section(hardware_summary, styles, table_style))
+	story.extend(
+		[
 		PageBreak(),
 		Paragraph("Ghost Asset Analysis", left_title_style),
 		Spacer(1, 14),
-	]
+		]
+	)
 	story.extend(build_evidence_table(analysis.get("evidence_rows", []), styles, table_style))
 	document.build(story)
 	return True
@@ -862,6 +992,22 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, object]) -> None
 	analysis = report_data["ghost_asset_analysis"]
 	if not isinstance(analysis, dict):
 		analysis = {}
+	hardware_summary = report_data.get("hardware_device_summary", {})
+	if not isinstance(hardware_summary, dict):
+		hardware_summary = {}
+	hardware_lines = [
+		"",
+		"Total Number of Hardware Devices",
+	]
+	devices = hardware_summary.get("devices", [])
+	if isinstance(devices, list) and devices:
+		for device in devices:
+			if isinstance(device, dict):
+				hardware_lines.append(truncated_text(f"{device.get('asset', 'Unknown')}", 88))
+	else:
+		hardware_lines.append("No hardware devices were found.")
+	if int(hardware_summary.get("total_count", 0) or 0) > int(hardware_summary.get("display_count", 0) or 0):
+		hardware_lines.append(f"Showing first {hardware_summary.get('display_count', 0)} of {hardware_summary.get('total_count', 0)} hardware devices.")
 	analysis_lines = build_fallback_analysis_lines(analysis)
 	analysis_page_chunks = [analysis_lines[index:index + 30] for index in range(0, len(analysis_lines), 30)] or [["Ghost Asset Analysis", "", "No correlated asset data found."]]
 	page_streams = [
@@ -873,6 +1019,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, object]) -> None
 				f"System Title: {report_data['system_title']}",
 				f"System Key: {report_data['system_key']}",
 				f"Description: {report_data['system_description']}",
+				*hardware_lines,
 			],
 			font_size=14,
 		),
@@ -934,7 +1081,8 @@ def main() -> None:
 	hardware_data = parse_json_value_from_output(call_hardware_json_script(base_arguments))
 	patch_data = parse_json_value_from_output(call_patch_data_json_script(base_arguments))
 	checklist_data = parse_json_value_from_output(call_checklist_json_script(base_arguments, options))
-	report_data = build_report_data(system_key, options, system_package, hardware_data, patch_data, checklist_data)
+	ppsm_data = parse_json_value_from_output(call_ppsm_json_script(base_arguments))
+	report_data = build_report_data(system_key, options, system_package, hardware_data, patch_data, checklist_data, ppsm_data)
 	output_filename = f"OpenRMFPro-Ghost-Asset-{safe_filename_value(report_data['system_key'])}.pdf"
 	output_path = Path(output_filename)
 	pdf_writer = write_pdf(output_path, report_data)
