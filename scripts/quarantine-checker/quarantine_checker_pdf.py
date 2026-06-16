@@ -93,6 +93,7 @@ PATCH_SETTING_KEYS = {
 }
 CHECKLIST_SEVERITY_KEYS = {
 	"High": [
+		"totalCat1Open",
 		"totalHighOpen",
 		"totalChecklistHighOpen",
 		"checklistHighOpen",
@@ -108,6 +109,7 @@ CHECKLIST_SEVERITY_KEYS = {
 		"totalCategory1Open",
 	],
 	"Medium": [
+		"totalCat2Open",
 		"totalMediumOpen",
 		"totalChecklistMediumOpen",
 		"checklistMediumOpen",
@@ -123,6 +125,7 @@ CHECKLIST_SEVERITY_KEYS = {
 		"totalCategory2Open",
 	],
 	"Low": [
+		"totalCat3Open",
 		"totalLowOpen",
 		"totalChecklistLowOpen",
 		"checklistLowOpen",
@@ -146,6 +149,7 @@ CHECKLIST_SETTING_KEYS = {
 HARDWARE_RECORD_KEYS = ["records", "items", "data", "results", "hardware", "assets", "devices"]
 PATCH_SCORE_DEVICE_RECORD_KEYS = ["records", "items", "data", "results", "patchScoreDevices", "patchscoreDevices", "patchScores", "devices", "assets"]
 CHECKLIST_RECORD_KEYS = ["records", "items", "data", "results", "checklists", "checklist", "devices", "assets"]
+ARTIFACT_TITLE_KEYS = ["artifactTitle", "artifact_title", "title", "checklistTitle", "checklistName", "name"]
 PDF_LEFT_MARGIN = 36
 PDF_RIGHT_MARGIN = 36
 JSON_WRAP_WIDTH = 108
@@ -209,8 +213,8 @@ def call_patch_score_devices_json_script(arguments: list[str]) -> str:
 	return call_json_script("patch-vulnerability", PATCH_SCORE_DEVICES_SCRIPT_NAME, arguments, "patch score devices")
 
 
-def call_checklists_json_script(arguments: list[str]) -> str:
-	return call_json_script("checklist", CHECKLISTS_SCRIPT_NAME, [*arguments, "limit=10000"], "checklists")
+def call_checklists_json_script_for_hostname(arguments: list[str], hostname: str) -> str:
+	return call_json_script("checklist", CHECKLISTS_SCRIPT_NAME, [*arguments, "limit=10000", f"searchString={hostname}"], "checklists")
 
 
 def parse_json_value_from_output(output: str):
@@ -395,6 +399,24 @@ def record_hostname(record: dict) -> str:
 	return nested_value if nested_value else "Unknown"
 
 
+def artifact_title(record: dict) -> str:
+	direct_value = first_record_value(record, ARTIFACT_TITLE_KEYS)
+	if direct_value:
+		return direct_value
+	nested_value = first_nested_record_value(
+		record,
+		[
+			["artifact", "artifactTitle"],
+			["artifact", "title"],
+			["checklist", "artifactTitle"],
+			["checklist", "title"],
+			["score", "artifactTitle"],
+			["score", "title"],
+		],
+	)
+	return nested_value
+
+
 def looks_like_hardware_record(value: dict) -> bool:
 	return bool(
 		set(HOSTNAME_KEYS + IP_KEYS).intersection(value.keys())
@@ -477,16 +499,24 @@ def build_patch_reason(record: dict) -> str:
 	return "; ".join(reasons)
 
 
+def checklist_score_value(record: dict, score_key: str):
+	for path in [["score", score_key], ["checklistScore", score_key], ["checklistscore", score_key]]:
+		count = numeric_value(value_at_path(record, path))
+		if count is not None:
+			return count
+	return first_numeric_json_value(record, {score_key})
+
+
 def build_checklist_reason(record: dict) -> str:
 	reasons = []
-	for severity, keys in CHECKLIST_SEVERITY_KEYS.items():
-		count = first_numeric_json_value(record, set(keys))
+	for severity, score_key in {"High": "totalCat1Open", "Medium": "totalCat2Open", "Low": "totalCat3Open"}.items():
+		count = checklist_score_value(record, score_key)
 		if count is None:
 			continue
 		setting_key = CHECKLIST_SETTING_KEYS[severity]
 		threshold = numeric_value(QUARANTINE_SETTINGS.get(setting_key, 0)) or 0
 		if count > threshold:
-			reasons.append(f"{severity} open checklist vulnerabilities: {count} exceeds maximum {threshold}")
+			reasons.append(f"{severity} open checklist vulnerabilities ({score_key}): {count} exceeds maximum {threshold}")
 
 	return "; ".join(reasons)
 
@@ -502,6 +532,24 @@ def build_hardware_lookup(hardware_data) -> dict[str, dict[str, str]]:
 			"IP address": ", ".join(extract_ips(record)),
 		}
 	return lookup
+
+
+def build_hardware_inventory(hardware_data) -> list[dict[str, str]]:
+	devices = []
+	seen_hostnames = set()
+	for record in hardware_records(hardware_data):
+		hostname = record_hostname(record)
+		normalized_hostname = normalized_value(hostname)
+		if normalized_hostname in ("", "unknown") or normalized_hostname in seen_hostnames:
+			continue
+		seen_hostnames.add(normalized_hostname)
+		devices.append(
+			{
+				"hostname": hostname,
+				"IP address": ", ".join(extract_ips(record)),
+			}
+		)
+	return sorted(devices, key=lambda row: (row["hostname"].lower(), row["IP address"]))
 
 
 def build_hardware_patch_listing(hardware_data, patch_score_devices_data) -> list[dict[str, str]]:
@@ -524,24 +572,84 @@ def build_hardware_patch_listing(hardware_data, patch_score_devices_data) -> lis
 	return sorted(rows, key=lambda row: (row["hostname"].lower(), row["IP address"]))
 
 
-def build_hardware_checklist_listing(hardware_data, checklists_data) -> list[dict[str, str]]:
-	hardware_lookup = build_hardware_lookup(hardware_data)
-	rows = []
-	for record in checklist_records(checklists_data):
-		reason = build_checklist_reason(record)
-		if not reason:
-			continue
+def build_hardware_checklist_inventory(hardware_inventory: list[dict[str, str]], checklist_data_by_hostname: dict[str, object]) -> list[dict[str, str]]:
+	rows_by_hostname = {}
+	for hardware_record in hardware_inventory:
+		hostname = hardware_record["hostname"]
+		for record in checklist_records(checklist_data_by_hostname.get(hostname, [])):
+			reason = build_checklist_reason(record)
+			if not reason:
+				continue
 
-		checklist_hostname = record_hostname(record)
-		hardware_record = hardware_lookup.get(normalized_value(checklist_hostname), {})
-		rows.append(
-			{
-				"hostname": hardware_record.get("hostname", checklist_hostname),
-				"IP address": hardware_record.get("IP address", ", ".join(extract_ips(record))),
-				"reason": reason,
-			}
-		)
-	return sorted(rows, key=lambda row: (row["hostname"].lower(), row["IP address"]))
+			if hostname not in rows_by_hostname:
+				rows_by_hostname[hostname] = {
+					"hostname": hostname,
+					"IP address": hardware_record["IP address"],
+					"reasons": [],
+				}
+			for reason_part in reason.split("; "):
+				if reason_part and reason_part not in rows_by_hostname[hostname]["reasons"]:
+					rows_by_hostname[hostname]["reasons"].append(reason_part)
+
+	rows = [
+		{
+			"hostname": row["hostname"],
+			"IP address": row["IP address"],
+			"reason": "; ".join(row["reasons"]),
+		}
+		for row in rows_by_hostname.values()
+	]
+	return sorted(rows, key=lambda row: (safe_text(row["hostname"]).lower(), safe_text(row["IP address"])))
+
+
+def build_hardware_checklist_score_inventory(hardware_inventory: list[dict[str, str]], checklist_data_by_hostname: dict[str, object]) -> list[dict[str, str]]:
+	rows = []
+	for hardware_record in hardware_inventory:
+		hostname = hardware_record["hostname"]
+		for record in checklist_records(checklist_data_by_hostname.get(hostname, [])):
+			reason = build_checklist_reason(record)
+			if not reason:
+				continue
+
+			rows.append(
+				{
+					"hostname": hostname,
+					"IP address": hardware_record["IP address"],
+					"reason": reason,
+					"artifactTitle": artifact_title(record),
+				}
+			)
+	return sorted(rows, key=lambda row: (safe_text(row["hostname"]).lower(), safe_text(row["IP address"]), safe_text(row["artifactTitle"]).lower()))
+
+
+def build_hardware_issues(hardware_patch_listing: list[dict[str, str]], hardware_checklist_inventory: list[dict[str, str]]) -> list[dict[str, str]]:
+	issues_by_device = {}
+	for source_name, listing in [("Patch", hardware_patch_listing), ("Checklist", hardware_checklist_inventory)]:
+		for row in listing:
+			hostname = row.get("hostname", "Unknown")
+			ip_address = row.get("IP address", "")
+			lookup_key = (normalized_value(hostname), ip_address)
+			if lookup_key not in issues_by_device:
+				issues_by_device[lookup_key] = {
+					"hostname": hostname,
+					"IP address": ip_address,
+					"reasons": [],
+				}
+			reason = row.get("reason", "")
+			if reason:
+				reason_text = f"{source_name}: {reason}"
+				if reason_text not in issues_by_device[lookup_key]["reasons"]:
+					issues_by_device[lookup_key]["reasons"].append(reason_text)
+
+	issues = [
+		{
+			"hostname": issue["hostname"],
+			"IP address": issue["IP address"],
+			"reason": "; ".join(issue["reasons"]),
+		}
+		for issue in issues_by_device.values()
+	]
+	return sorted(issues, key=lambda row: (safe_text(row["hostname"]).lower(), safe_text(row["IP address"])))
 
 
 def build_system_description(system_package: dict, options: dict[str, str]) -> str:
@@ -572,8 +680,11 @@ def report_title_for_system(system_title: str) -> str:
 	return f"{display_value(system_title) or 'Unknown'} {REPORT_TITLE_SUFFIX}"
 
 
-def build_report_data(system_key: str, options: dict[str, str], system_package: dict, hardware_data, patch_score_devices_data, checklists_data) -> dict:
+def build_report_data(system_key: str, options: dict[str, str], system_package: dict, hardware_data, patch_score_devices_data, checklist_data_by_hostname: dict[str, object]) -> dict:
 	system_title = build_system_title(system_package, options)
+	hardware_inventory = build_hardware_inventory(hardware_data)
+	hardware_patch_listing = build_hardware_patch_listing(hardware_data, patch_score_devices_data)
+	hardware_checklist_inventory = build_hardware_checklist_inventory(hardware_inventory, checklist_data_by_hostname)
 	return {
 		"system_key": system_key,
 		"system_title": system_title,
@@ -582,9 +693,19 @@ def build_report_data(system_key: str, options: dict[str, str], system_package: 
 		"framework_title": framework_value(system_package, options, {"frameworkTitle", "frameworktitle", "framework_title"}, "frameworkTitle", "frameworktitle", "framework_title"),
 		"framework_version": framework_value(system_package, options, {"frameworkVersion", "frameworkversion", "framework_version"}, "frameworkVersion", "frameworkversion", "framework_version"),
 		"generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
-		"hardware_patch_listing": build_hardware_patch_listing(hardware_data, patch_score_devices_data),
-		"hardware_checklist_listing": build_hardware_checklist_listing(hardware_data, checklists_data),
+		"hardware_issues": build_hardware_issues(hardware_patch_listing, hardware_checklist_inventory),
+		"hardware_patch_listing": hardware_patch_listing,
+		"hardware_checklist_inventory": hardware_checklist_inventory,
+		"hardware_checklist_score_inventory": build_hardware_checklist_score_inventory(hardware_inventory, checklist_data_by_hostname),
 	}
+
+
+def build_checklist_data_by_hostname(arguments: list[str], hardware_data) -> dict[str, object]:
+	checklist_data_by_hostname = {}
+	for hardware_record in build_hardware_inventory(hardware_data):
+		hostname = hardware_record["hostname"]
+		checklist_data_by_hostname[hostname] = parse_json_value_from_output(call_checklists_json_script_for_hostname(arguments, hostname))
+	return checklist_data_by_hostname
 
 
 def json_listing_text(report_data: dict, listing_key: str) -> str:
@@ -627,12 +748,19 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 	table_header_style = styles["BodyText"].clone("CenteredTableHeader")
 	table_header_style.alignment = 1
 	table_header_style.fontName = "Helvetica-Bold"
+	link_style = styles["BodyText"].clone("ContentsLink")
+	link_style.textColor = colors.blue
+
+	def contents_link(title: str, anchor_name: str) -> Paragraph:
+		return Paragraph(f'<link href="#{anchor_name}">{html.escape(title)}</link>', link_style)
 
 	contents_table = Table(
 		[
 			[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)],
-			["Hardware Patch Information", "2"],
-			["Hardware Checklist Information", "3"],
+			[contents_link("Hardware Patch Information", "hardware_patch_information"), "2"],
+			[contents_link("Hardware Checklist Inventory", "hardware_checklist_inventory"), "3"],
+			[contents_link("Hardware Checklist Score Inventory", "hardware_checklist_score_inventory"), "4"],
+			[contents_link("Hardware Issues", "hardware_issues"), "5"],
 		],
 		hAlign="LEFT",
 		colWidths=[380, 90],
@@ -667,13 +795,21 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 		Spacer(1, 18),
 		contents_table,
 		PageBreak(),
-		Paragraph("Hardware Patch Information", styles["Heading1"]),
+		Paragraph('<a name="hardware_patch_information"/>Hardware Patch Information', styles["Heading1"]),
 		Spacer(1, 12),
 		Preformatted(wrapped_json_listing_text(report_data, "hardware_patch_listing"), preformatted_style),
 		PageBreak(),
-		Paragraph("Hardware Checklist Information", styles["Heading1"]),
+		Paragraph('<a name="hardware_checklist_inventory"/>Hardware Checklist Inventory', styles["Heading1"]),
 		Spacer(1, 12),
-		Preformatted(wrapped_json_listing_text(report_data, "hardware_checklist_listing"), preformatted_style),
+		Preformatted(wrapped_json_listing_text(report_data, "hardware_checklist_inventory"), preformatted_style),
+		PageBreak(),
+		Paragraph('<a name="hardware_checklist_score_inventory"/>Hardware Checklist Score Inventory', styles["Heading1"]),
+		Spacer(1, 12),
+		Preformatted(wrapped_json_listing_text(report_data, "hardware_checklist_score_inventory"), preformatted_style),
+		PageBreak(),
+		Paragraph('<a name="hardware_issues"/>Hardware Issues', styles["Heading1"]),
+		Spacer(1, 12),
+		Preformatted(wrapped_json_listing_text(report_data, "hardware_issues"), preformatted_style),
 	]
 	document.build(story)
 	return True
@@ -701,9 +837,27 @@ def chunk_lines(lines: list[str], chunk_size: int) -> list[list[str]]:
 	return [lines[index:index + chunk_size] for index in range(0, len(lines), chunk_size)]
 
 
+def fallback_link_annotation(rectangle: tuple[int, int, int, int], target_page_object_number: int) -> bytes:
+	x1, y1, x2, y2 = rectangle
+	return (
+		f"<< /Type /Annot /Subtype /Link /Rect [{x1} {y1} {x2} {y2}] "
+		f"/Border [0 0 0] /A << /S /GoTo /D [{target_page_object_number} 0 R /Fit] >> >>"
+	).encode("ascii")
+
+
 def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
 	patch_json_lines = wrapped_json_listing_text(report_data, "hardware_patch_listing").splitlines()
-	checklist_json_lines = wrapped_json_listing_text(report_data, "hardware_checklist_listing").splitlines()
+	checklist_inventory_json_lines = wrapped_json_listing_text(report_data, "hardware_checklist_inventory").splitlines()
+	checklist_score_json_lines = wrapped_json_listing_text(report_data, "hardware_checklist_score_inventory").splitlines()
+	hardware_issues_json_lines = wrapped_json_listing_text(report_data, "hardware_issues").splitlines()
+	patch_chunks = chunk_lines(patch_json_lines, 56)
+	checklist_inventory_chunks = chunk_lines(checklist_inventory_json_lines, 56)
+	checklist_score_chunks = chunk_lines(checklist_score_json_lines, 56)
+	hardware_issues_chunks = chunk_lines(hardware_issues_json_lines, 56)
+	patch_start_page_index = 1
+	checklist_inventory_start_page_index = patch_start_page_index + len(patch_chunks)
+	checklist_score_start_page_index = checklist_inventory_start_page_index + len(checklist_inventory_chunks)
+	hardware_issues_start_page_index = checklist_score_start_page_index + len(checklist_score_chunks)
 	page_streams = [
 		make_text_page(
 			[
@@ -717,17 +871,36 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
 				"Page Title                                      Page Number",
 				"--------------------------------------------  -----------",
 				"Hardware Patch Information                              2",
-				"Hardware Checklist Information                          3",
+				"Hardware Checklist Inventory                            3",
+				"Hardware Checklist Score Inventory                      4",
+				"Hardware Issues                                         5",
 			],
 			font_size=14,
 		),
 	]
-	for index, lines in enumerate(chunk_lines(patch_json_lines, 56)):
+	for index, lines in enumerate(patch_chunks):
 		page_lines = ["Hardware Patch Information", ""] if index == 0 else ["Hardware Patch Information (continued)", ""]
 		page_streams.append(make_text_page([*page_lines, *lines], font_size=9))
-	for index, lines in enumerate(chunk_lines(checklist_json_lines, 56)):
-		page_lines = ["Hardware Checklist Information", ""] if index == 0 else ["Hardware Checklist Information (continued)", ""]
+	for index, lines in enumerate(checklist_inventory_chunks):
+		page_lines = ["Hardware Checklist Inventory", ""] if index == 0 else ["Hardware Checklist Inventory (continued)", ""]
 		page_streams.append(make_text_page([*page_lines, *lines], font_size=9))
+	for index, lines in enumerate(checklist_score_chunks):
+		page_lines = ["Hardware Checklist Score Inventory", ""] if index == 0 else ["Hardware Checklist Score Inventory (continued)", ""]
+		page_streams.append(make_text_page([*page_lines, *lines], font_size=9))
+	for index, lines in enumerate(hardware_issues_chunks):
+		page_lines = ["Hardware Issues", ""] if index == 0 else ["Hardware Issues (continued)", ""]
+		page_streams.append(make_text_page([*page_lines, *lines], font_size=9))
+
+	total_pages = len(page_streams)
+	page_object_number_for_index = lambda page_index: 4 + page_index * 2
+	first_page_link_targets = [
+		((PDF_LEFT_MARGIN, 582, 420, 604), page_object_number_for_index(patch_start_page_index)),
+		((PDF_LEFT_MARGIN, 564, 420, 586), page_object_number_for_index(checklist_inventory_start_page_index)),
+		((PDF_LEFT_MARGIN, 546, 420, 568), page_object_number_for_index(checklist_score_start_page_index)),
+		((PDF_LEFT_MARGIN, 528, 420, 550), page_object_number_for_index(hardware_issues_start_page_index)),
+	]
+	first_annotation_object_number = 4 + total_pages * 2
+	first_page_annotation_references = [f"{first_annotation_object_number + index} 0 R" for index in range(len(first_page_link_targets))]
 
 	objects = [
 		b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -736,14 +909,20 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
 	]
 	page_object_numbers = []
 	for page_stream in page_streams:
+		page_index = len(page_object_numbers)
 		page_object_number = len(objects) + 1
 		content_object_number = len(objects) + 2
 		page_object_numbers.append(page_object_number)
+		annotations = ""
+		if page_index == 0:
+			annotations = " /Annots [" + " ".join(first_page_annotation_references) + "]"
 		objects.append(
-			f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_object_number} 0 R >>".encode("latin-1")
+			f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_object_number} 0 R{annotations} >>".encode("latin-1")
 		)
 		stream_bytes = page_stream.encode("latin-1", errors="replace")
 		objects.append(b"<< /Length " + str(len(stream_bytes)).encode("ascii") + b" >>\nstream\n" + stream_bytes + b"\nendstream")
+	for rectangle, target_page_object_number in first_page_link_targets:
+		objects.append(fallback_link_annotation(rectangle, target_page_object_number))
 	kids = " ".join(f"{page_number} 0 R" for page_number in page_object_numbers)
 	objects[1] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_numbers)} >>".encode("latin-1")
 
@@ -784,12 +963,13 @@ def main() -> None:
 	system_package = parse_json_value_from_output(call_system_package_json_script(arguments))
 	hardware_data = parse_json_value_from_output(call_hardware_json_script(arguments))
 	patch_score_devices_data = parse_json_value_from_output(call_patch_score_devices_json_script(arguments))
-	checklists_data = parse_json_value_from_output(call_checklists_json_script(arguments))
-	report_data = build_report_data(system_key, options, system_package, hardware_data, patch_score_devices_data, checklists_data)
+	checklist_data_by_hostname = build_checklist_data_by_hostname(arguments, hardware_data)
+	report_data = build_report_data(system_key, options, system_package, hardware_data, patch_score_devices_data, checklist_data_by_hostname)
 	output_filename = f"OpenRMFPro-Quarantine-Checker-{safe_filename_value(report_data['system_key'])}.pdf"
 	output_path = Path(output_filename)
 	pdf_writer = write_pdf(output_path, report_data)
 	print(f"Created PDF: {output_filename}")
+	print(json.dumps({"Hardware Issues": report_data["hardware_issues"]}, indent=2, sort_keys=False))
 	if pdf_writer == "fallback":
 		print("NOTE: reportlab was not installed. Created the PDF with the built-in lightweight fallback writer.")
 
