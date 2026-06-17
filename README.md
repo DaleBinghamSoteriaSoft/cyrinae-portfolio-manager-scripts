@@ -18,4 +18,6 @@ CYRINAE is the all encompassing solution of the following items:
 
 ## How this is Used
 
-This repo has scripts in it organized by topic and area of cyber compliance, hygiene, and security.  It also has example .csv files exported from data in OpenRMF Professional. And it has higher level python scripts to call the OpenRMF Professional external API and process information. 
+This repo has <a href="./scripts">scripts</a> to call APIs with examples as well.  It is organized by topic and area of cyber compliance, hygiene, and security.  It also has example .csv files exported from data in OpenRMF Professional. And it has higher level python scripts to call the OpenRMF Professional external API and process information. 
+
+The <a href="./scripts">scripts</a> is the best place to start to see the main ideas around risk profiling, POAM prioritization, overview PDFs and more. 

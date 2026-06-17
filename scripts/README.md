@@ -1,6 +1,8 @@
 # CYRINAE Python3 Scripts
 
-Python, Pandas and other libraries to do higher level processing of cyber compliance, hygiene, and security data. Feel free to fork the repo, extend these, add on to them, and submit back for the entire community to use. 
+This area contains Python, Pandas and other libraries to do higher level processing of cyber compliance, hygiene, and security data. The main scripts are listed below. And there are additional supplemental python scripts to support the higher level features we are generating here as well. 
+
+Feel free to fork the repo, extend these, add on to them, and submit back for the entire community to use. 
 
 ## Available Scripts
 The scripts available are below. And we have other ones copied from our GH public automation repo at https://github.com/SoteriaSoftwareLLC/openrmfpro-automation/ to show how you use them to do higher level work. 
@@ -12,8 +14,14 @@ Most of the scripts below you pass in the root URL, your OpenRMF<sup>&reg;</sup>
 | System Package Overview PDF | system-package/get_systempackage_by_systemkey_overview_pdf.py | Creates a PDF for main points in your system package  |
 | System Package POAM Raw Severity PDF | poam/get_systempackage_by_systemkey_poam_raw_severity_overview_pdf.py | Creates a PDF for your POAM risk data based on raw severity of items |
 | System Package POAM Residual Risk PDF | poam/get_systempackage_by_systemkey_poam_residual_risk_overview_pdf.py | Creates a PDF for your POAM risk data based on your residual risk of items |
-| Risk Profiler PDF | risk-profiler/risk_profiler_pdf.py | use the thresholds in the settins file to run a risk profiler on all your system package data |
+| Risk Profiler PDF | risk-profiler/risk_profiler_pdf.py | use the thresholds in the settings file to run a risk profiler on all your system package data |
 | CMMC Score (in progress) | CMMC/calculate_cmmc_score.py | Calculate your pass/fail and score for CMMC 2.0 Level 1, 2 or 3 -- still a work in progress |
+| Golden Baseline | | Mathematically discover what the actual baseline is across your infrastructure, and isolate the outliers. |
+| POAM Prioritizing | | Optimization, weighted scoring algorithms, categorical data handling of POAM items to show greatest impact for prioritizing work. |
+| Pre-Assessment Checker | assessment/preassessment_checker_pdf.py | Check that you are ready for assessment with high level checks across all your compliance data and vulnerabilities. |
+| Ghost Assets | | Find if there are assets in your listing across hardware, checklists, and ports/protocols/services that are not related to devices in your system package. |
+| Quarantine Testing | | Based on settings, find devices that meet certain criteria that warrant investigating for quarantine. |
+| Software Inventory Lifecycle | | Track current system package software and versions against known end of life (EOL) information to alert on those coming up for EOL. |
 
 ## Install Requests Python Package
 
@@ -39,7 +47,7 @@ The Risk Profiler PDF script and others add histogram charts for grouping of dat
 python3 -m pip install matplotlib
 ```
 
-## System Package Overview PDF
+## Example running the System Package Overview PDF
 
 Create a PDF overview report for a system package. The script calls `system-package/get_systempackage_by_systemkey_json.py` with the same required parameters, then writes `OpenRMFPro-System-Package-Overview-<systemKey>.pdf` using the returned `systemKey` value.
 
@@ -51,6 +59,7 @@ python3 system-package/get_systempackage_by_systemkey_overview_pdf.py \
   <systemKey>
 ```
 
+A lot of the examples are used like this to point at a System Package within OpenRMF Professional and create the result.
 
 ## MacOS Installation
 
@@ -106,4 +115,3 @@ python3 -m pip install pandas
 python3 -m pip install reportlab
 python3 -m pip install matplotlib
 ```
-
