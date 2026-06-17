@@ -18,7 +18,7 @@ Most of the scripts below you pass in the root URL, your OpenRMF<sup>&reg;</sup>
 | <a href="CMMC/calculate_cmmc_score.py">CMMC Score (WIP)</a> | Calculate your pass/fail and score for CMMC 2.0 Level 1, 2 or 3 -- still a work in progress |
 | Golden Baseline (WIP)| Mathematically discover what the actual baseline is across your infrastructure, and isolate the outliers. |
 | POAM Prioritizing (WIP)| Optimization, weighted scoring algorithms, categorical data handling of POAM items to show greatest impact for prioritizing work. |
-| Pre-Assessment Checker (WIP)| assessment/preassessment_checker_pdf.py | Check that you are ready for assessment with high level checks across all your compliance data and vulnerabilities. |
+| <a href="assessment/preassessment_checker_pdf.py">Pre-Assessment Checker</a> (WIP)| Check that you are ready for assessment with high level checks across all your compliance data and vulnerabilities. |
 | Ghost Assets (WIP)| Find if there are assets in your listing across hardware, checklists, and ports/protocols/services that are not related to devices in your system package. |
 | Quarantine Testing (WIP)| Based on settings, find devices that meet certain criteria that warrant investigating for quarantine. |
 | Software Inventory Lifecycle (WIP)| Track current system package software and versions against known end of life (EOL) information to alert on those coming up for EOL. |
