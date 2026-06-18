@@ -28,7 +28,7 @@ The scripts available are below. And we have other ones copied from our GH publi
 Most of the scripts below you pass in the root URL, your OpenRMF<sup>&reg;</sup> Professional application key, the token, and then your systemKey. See comments in the scripts if more is required. 
 
 | Script | Description |
-| -------- | -------- | ---------------------------------- |
+| -------- | ---------------------------------- |
 | <a href="./scripts/system-package/get_systempackage_by_systemkey_overview_pdf.py">System Package Overview PDF</a> | Creates a PDF for main points in your system package  |
 | <a href="./scripts/poam/get_systempackage_by_systemkey_poam_raw_severity_overview_pdf.py">System Package POAM Raw Severity PDF</a> | Creates a PDF for your POAM risk data based on raw severity of items |
 | <a href="./scripts/poam/get_systempackage_by_systemkey_poam_residual_risk_overview_pdf.py">System Package POAM Residual Risk PDF</a> | Creates a PDF for your POAM risk data based on your residual risk of items |
