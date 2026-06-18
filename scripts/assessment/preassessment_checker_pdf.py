@@ -788,7 +788,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		from reportlab.lib import colors  # pyright: ignore[reportMissingModuleSource]
 		from reportlab.lib.pagesizes import letter  # pyright: ignore[reportMissingModuleSource]
 		from reportlab.lib.styles import getSampleStyleSheet  # pyright: ignore[reportMissingModuleSource]
-		from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle  # pyright: ignore[reportMissingModuleSource]
+		from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle  # pyright: ignore[reportMissingModuleSource]
 	except ImportError:
 		return False
 
@@ -845,7 +845,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		Paragraph(f"Description: {html.escape(report_data['system_description'])}", styles["Normal"]),
 		Paragraph(f"Total Number of Checklists: {html.escape(report_data['checklist_count'])}", styles["Normal"]),
 		Paragraph(f"Total Number of Hardware: {html.escape(report_data['hardware_count'])}", styles["Normal"]),
-		PageBreak(),
+		Spacer(1, 18),
 		Paragraph('<a name="items-checked"/>Items Checked', styles["Heading1"]),
 		Spacer(1, 12),
 		check_table,
@@ -885,12 +885,12 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		f"Total Number of Checklists: {report_data['checklist_count']}",
 		f"Total Number of Hardware: {report_data['hardware_count']}",
 	]
-	page_two_lines = ["Items Checked", "", "Items Checked                                                        Pass/Fail", "------------------------------------------------------------------  ---------"]
+	checked_lines = ["", "Items Checked", "", "Items Checked                                                        Pass/Fail", "------------------------------------------------------------------  ---------"]
 	for row in report_data["check_rows"]:
 		wrapped_item_lines = wrap_pdf_line(row["item"], 66)
 		for index, item_line in enumerate(wrapped_item_lines):
 			result_value = row["result"].upper() if index == 0 else ""
-			page_two_lines.append(f"{item_line:<66}  {result_value:>9}")
+			checked_lines.append(f"{item_line:<66}  {result_value:>9}")
 
 	def make_text_stream(lines: list[str]) -> str:
 		wrapped_lines = []
@@ -905,7 +905,9 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		stream_lines.append("ET")
 		return "\n".join(stream_lines)
 
-	page_streams = [make_text_stream(page_one_lines), make_text_stream(page_two_lines)]
+	all_lines = [*page_one_lines, *checked_lines]
+	page_chunks = [all_lines[index:index + 34] for index in range(0, len(all_lines), 34)] or [all_lines]
+	page_streams = [make_text_stream(page_chunk) for page_chunk in page_chunks]
 
 	objects = [
 		b"<< /Type /Catalog /Pages 2 0 R >>",
