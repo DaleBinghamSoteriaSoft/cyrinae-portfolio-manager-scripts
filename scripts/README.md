@@ -4,25 +4,6 @@ This area contains Python, Pandas and other libraries to do higher level process
 
 Feel free to fork the repo, extend these, add on to them, and submit back for the entire community to use. 
 
-## Available Scripts
-The scripts available are below. And we have other ones copied from our GH public automation repo at https://github.com/SoteriaSoftwareLLC/openrmfpro-automation/ to show how you use them to do higher level work. 
-
-Most of the scripts below you pass in the root URL, your OpenRMF<sup>&reg;</sup> Professional application key, the token, and then your systemKey. See comments in the scripts if more is required. 
-
-| Script | Path | Description |
-| -------- | -------- | ---------------------------------- |
-| <a href="system-package/get_systempackage_by_systemkey_overview_pdf.py">System Package Overview PDF</a> | Creates a PDF for main points in your system package  |
-| <a href="poam/get_systempackage_by_systemkey_poam_raw_severity_overview_pdf.py">System Package POAM Raw Severity PDF</a> | Creates a PDF for your POAM risk data based on raw severity of items |
-| <a href="poam/get_systempackage_by_systemkey_poam_residual_risk_overview_pdf.py">System Package POAM Residual Risk PDF</a> | Creates a PDF for your POAM risk data based on your residual risk of items |
-| <a href="risk-profiler/risk_profiler_pdf.py">Risk Profiler PDF</a> | Create a PDF using the thresholds in the settings file to run a risk profiler on all your system package data |
-| <a href="CMMC/calculate_cmmc_score.py">CMMC Score (WIP)</a> | Calculate your pass/fail and score for CMMC 2.0 Level 1, 2 or 3 -- still a work in progress |
-| Golden Baseline (WIP)| Mathematically discover what the actual baseline is across your infrastructure, and isolate the outliers. |
-| <a href="poam_prioritization_pdf.py">POAM Prioritizing</a>| Optimization, weighted scoring algorithms, categorical data handling of POAM items to show greatest impact for prioritizing work. |
-| <a href="assessment/preassessment_checker_pdf.py">Pre-Assessment Checker</a> (WIP)| Check that you are ready for assessment with high level checks across all your compliance data and vulnerabilities. |
-| Ghost Assets (WIP)| Find if there are assets in your listing across hardware, checklists, and ports/protocols/services that are not related to devices in your system package. |
-| Quarantine Testing (WIP)| Based on settings, find devices that meet certain criteria that warrant investigating for quarantine. |
-| Software Inventory Lifecycle (WIP)| Track current system package software and versions against known end of life (EOL) information to alert on those coming up for EOL. |
-
 ## Install Requests Python Package
 
 You will need to run `pip3 install requests` in order to load that library into your folder. Then you can start with the authentication.py script.
