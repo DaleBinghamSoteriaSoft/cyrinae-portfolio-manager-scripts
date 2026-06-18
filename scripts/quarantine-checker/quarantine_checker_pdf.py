@@ -453,11 +453,7 @@ def checklist_hostname_values(record: dict) -> list[str]:
 
 def checklist_record_matches_hardware(record: dict, hardware_record: dict[str, str]) -> bool:
 	hostname = hardware_record.get("hostname", "")
-	if any(hostname_matches(candidate, hostname) for candidate in checklist_hostname_values(record)):
-		return True
-	hardware_ips = set(extract_ips_from_value(hardware_record.get("IP address", "")))
-	checklist_ips = set(extract_ips(record))
-	return bool(hardware_ips and checklist_ips and hardware_ips.intersection(checklist_ips))
+	return any(hostname_matches(candidate, hostname) for candidate in checklist_hostname_values(record))
 
 
 def artifact_title(record: dict) -> str:
