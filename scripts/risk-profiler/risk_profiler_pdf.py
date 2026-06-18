@@ -529,26 +529,44 @@ def build_overall_compliance_risk_rows(percentage_pairs: list[tuple[float, float
 	complete_medium_risk_max = risk_setting_percent("minCompliancePercentCompleteMediumRisk")
 	if not percentage_pairs:
 		return [
-			{"title": "Compliance Percent Complete Risk", "value": "N/A", "risk": "High"},
-			{"title": "Open Compliance Risk", "value": "N/A", "risk": "High"},
+			{"title": "Complete Compliance Risk", "value": "0", "low": "0", "medium": "0", "high": "0"},
+			{"title": "Open Compliance Risk", "value": "0", "low": "0", "medium": "0", "high": "0"},
 		]
-	percentage_open_values = [percentage_open for percentage_open, _ in percentage_pairs]
-	percentage_complete_values = [percentage_complete for _, percentage_complete in percentage_pairs]
-	if any(percentage_complete <= complete_high_risk_max for percentage_complete in percentage_complete_values):
-		complete_risk = "High"
-	elif any(percentage_complete <= complete_medium_risk_max for percentage_complete in percentage_complete_values):
-		complete_risk = "Medium"
-	else:
-		complete_risk = "Low"
-	if any(percentage_open >= open_high_risk_min for percentage_open in percentage_open_values):
-		open_risk = "High"
-	elif any(percentage_open >= open_medium_risk_min for percentage_open in percentage_open_values):
-		open_risk = "Medium"
-	else:
-		open_risk = "Low"
+	complete_counts = {"low": 0, "medium": 0, "high": 0}
+	open_counts = {"low": 0, "medium": 0, "high": 0}
+	for percentage_open, percentage_complete in percentage_pairs:
+		if percentage_complete > 0:
+			if percentage_complete <= complete_high_risk_max:
+				complete_counts["high"] += 1
+			elif percentage_complete <= complete_medium_risk_max:
+				complete_counts["medium"] += 1
+			else:
+				complete_counts["low"] += 1
+
+		if percentage_open > 0:
+			if percentage_open >= open_high_risk_min:
+				open_counts["high"] += 1
+			elif percentage_open >= open_medium_risk_min:
+				open_counts["medium"] += 1
+			else:
+				open_counts["low"] += 1
+	complete_value = sum(complete_counts.values())
+	open_value = sum(open_counts.values())
 	return [
-		{"title": "Compliance Percent Complete Risk", "value": f"{min(percentage_complete_values):.1f}%", "risk": complete_risk},
-		{"title": "Open Compliance Risk", "value": f"{max(percentage_open_values):.1f}%", "risk": open_risk},
+		{
+			"title": "Complete Compliance Risk",
+			"value": str(complete_value),
+			"low": str(complete_counts["low"]),
+			"medium": str(complete_counts["medium"]),
+			"high": str(complete_counts["high"]),
+		},
+		{
+			"title": "Open Compliance Risk",
+			"value": str(open_value),
+			"low": str(open_counts["low"]),
+			"medium": str(open_counts["medium"]),
+			"high": str(open_counts["high"]),
+		},
 	]
 
 
@@ -2226,19 +2244,23 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			[
 				Paragraph("Compliance Risk Type", table_header_style),
 				Paragraph("Value", table_header_style),
-				Paragraph("Risk", table_header_style),
+				Paragraph("Low Risk", table_header_style),
+				Paragraph("Medium Risk", table_header_style),
+				Paragraph("High Risk", table_header_style),
 			],
 			*[
 				[
 					Paragraph(row["title"], styles["BodyText"]),
 					row["value"],
-					row["risk"],
+					row["low"],
+					row["medium"],
+					row["high"],
 				]
 				for row in report_data["overall_compliance_risk_rows"]
 			],
 		],
 		hAlign="LEFT",
-		colWidths=[260, 90, 90],
+		colWidths=[220, 70, 70, 70, 70],
 	)
 	overall_compliance_risk_style = [
 		("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
@@ -2247,22 +2269,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		("ALIGN", (0, 0), (-1, 0), "CENTER"),
 		("ALIGN", (1, 1), (-1, -1), "RIGHT"),
 		("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+		("BACKGROUND", (2, 1), (2, -1), colors.yellow),
+		("BACKGROUND", (3, 1), (3, -1), colors.orange),
+		("BACKGROUND", (4, 1), (4, -1), colors.red),
+		("TEXTCOLOR", (2, 1), (3, -1), colors.black),
+		("TEXTCOLOR", (4, 1), (4, -1), colors.white),
 	]
-	for row_index, row in enumerate(report_data["overall_compliance_risk_rows"], start=1):
-		risk_color = colors.red
-		risk_text_color = colors.white
-		if row["risk"] == "Medium":
-			risk_color = colors.orange
-			risk_text_color = colors.black
-		elif row["risk"] == "Low":
-			risk_color = colors.yellow
-			risk_text_color = colors.black
-		overall_compliance_risk_style.extend(
-			[
-				("BACKGROUND", (2, row_index), (2, row_index), risk_color),
-				("TEXTCOLOR", (2, row_index), (2, row_index), risk_text_color),
-			]
-		)
 	overall_compliance_risk_table.setStyle(TableStyle(overall_compliance_risk_style))
 	compliance_control_score_risk_area = report_data["compliance_control_score_risk_area"]
 	compliance_control_score_risk_table = Table(
@@ -2270,6 +2282,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			["Metric", "Value"],
 			["Status", compliance_control_score_risk_area["status"]],
 			["Number of Controls", compliance_control_score_risk_area["record_count"]],
+			["Number of Controls with Compliance Percentages", compliance_control_score_risk_area["percentage_count"]],
 			["Number of Controls with no Compliance Records", compliance_control_score_risk_area["both_zero_count"]],
 			["Percentage of Controls with no Compliance Records", compliance_control_score_risk_area["both_zero_percent"]],
 			["Risk", compliance_control_score_risk_area["risk"]],
@@ -2289,8 +2302,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		TableStyle(
 			[
 				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-				("BACKGROUND", (1, 5), (1, 5), compliance_control_score_risk_color),
-				("TEXTCOLOR", (1, 5), (1, 5), compliance_control_score_risk_text_color),
+				("BACKGROUND", (1, 6), (1, 6), compliance_control_score_risk_color),
+				("TEXTCOLOR", (1, 6), (1, 6), compliance_control_score_risk_text_color),
 				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
 				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
 				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
@@ -2878,12 +2891,12 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		[
 			"",
 			"Overall Compliance Risk",
-			"Compliance Risk Type | Value | Risk",
-			"-------------------- | ----- | ----",
+			"Compliance Risk Type | Value | Low Risk | Medium Risk | High Risk",
+			"-------------------- | ----- | -------- | ----------- | ---------",
 		]
 	)
 	for row in report_data["overall_compliance_risk_rows"]:
-		compliance_risk_lines.append(f"{row['title']} | {row['value']} | {row['risk']}")
+		compliance_risk_lines.append(f"{row['title']} | {row['value']} | {row['low']} | {row['medium']} | {row['high']}")
 	compliance_control_score_risk_area = report_data["compliance_control_score_risk_area"]
 	compliance_risk_lines.extend([
 		"",
@@ -2891,6 +2904,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		"",
 		f"Status: {compliance_control_score_risk_area['status']}",
 		f"Number of Controls: {compliance_control_score_risk_area['record_count']}",
+		f"Number of Controls with Compliance Percentages: {compliance_control_score_risk_area['percentage_count']}",
 		f"Number of Controls with no Compliance Records: {compliance_control_score_risk_area['both_zero_count']}",
 		f"Percentage of Controls with no Compliance Records: {compliance_control_score_risk_area['both_zero_percent']}",
 		f"Risk: {compliance_control_score_risk_area['risk']}",
