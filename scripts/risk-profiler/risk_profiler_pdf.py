@@ -529,26 +529,44 @@ def build_overall_compliance_risk_rows(percentage_pairs: list[tuple[float, float
 	complete_medium_risk_max = risk_setting_percent("minCompliancePercentCompleteMediumRisk")
 	if not percentage_pairs:
 		return [
-			{"title": "Compliance Percent Complete Risk", "value": "N/A", "risk": "High"},
-			{"title": "Open Compliance Risk", "value": "N/A", "risk": "High"},
+			{"title": "Complete Compliance Risk", "value": "0", "risk": "High"},
+			{"title": "Open Compliance Risk", "value": "0", "risk": "Low"},
 		]
-	percentage_open_values = [percentage_open for percentage_open, _ in percentage_pairs]
-	percentage_complete_values = [percentage_complete for _, percentage_complete in percentage_pairs]
-	if any(percentage_complete <= complete_high_risk_max for percentage_complete in percentage_complete_values):
+	complete_counts = {"low": 0, "medium": 0, "high": 0}
+	open_counts = {"low": 0, "medium": 0, "high": 0}
+	for percentage_open, percentage_complete in percentage_pairs:
+		if percentage_complete > 0:
+			if percentage_complete <= complete_high_risk_max:
+				complete_counts["high"] += 1
+			elif percentage_complete <= complete_medium_risk_max:
+				complete_counts["medium"] += 1
+			else:
+				complete_counts["low"] += 1
+
+		if percentage_open > 0:
+			if percentage_open >= open_high_risk_min:
+				open_counts["high"] += 1
+			elif percentage_open >= open_medium_risk_min:
+				open_counts["medium"] += 1
+			else:
+				open_counts["low"] += 1
+	complete_value = sum(complete_counts.values())
+	open_value = sum(open_counts.values())
+	if complete_value <= complete_high_risk_max:
 		complete_risk = "High"
-	elif any(percentage_complete <= complete_medium_risk_max for percentage_complete in percentage_complete_values):
+	elif complete_value <= complete_medium_risk_max:
 		complete_risk = "Medium"
 	else:
 		complete_risk = "Low"
-	if any(percentage_open >= open_high_risk_min for percentage_open in percentage_open_values):
+	if open_value >= open_high_risk_min:
 		open_risk = "High"
-	elif any(percentage_open >= open_medium_risk_min for percentage_open in percentage_open_values):
+	elif open_value >= open_medium_risk_min:
 		open_risk = "Medium"
 	else:
 		open_risk = "Low"
 	return [
-		{"title": "Compliance Percent Complete Risk", "value": f"{min(percentage_complete_values):.1f}%", "risk": complete_risk},
-		{"title": "Open Compliance Risk", "value": f"{max(percentage_open_values):.1f}%", "risk": open_risk},
+		{"title": "Complete Compliance Risk", "value": str(complete_value), "risk": complete_risk},
+		{"title": "Open Compliance Risk", "value": str(open_value), "risk": open_risk},
 	]
 
 
@@ -2270,6 +2288,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			["Metric", "Value"],
 			["Status", compliance_control_score_risk_area["status"]],
 			["Number of Controls", compliance_control_score_risk_area["record_count"]],
+			["Number of Controls with Compliance Percentages", compliance_control_score_risk_area["percentage_count"]],
 			["Number of Controls with no Compliance Records", compliance_control_score_risk_area["both_zero_count"]],
 			["Percentage of Controls with no Compliance Records", compliance_control_score_risk_area["both_zero_percent"]],
 			["Risk", compliance_control_score_risk_area["risk"]],
@@ -2289,8 +2308,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		TableStyle(
 			[
 				("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-				("BACKGROUND", (1, 5), (1, 5), compliance_control_score_risk_color),
-				("TEXTCOLOR", (1, 5), (1, 5), compliance_control_score_risk_text_color),
+				("BACKGROUND", (1, 6), (1, 6), compliance_control_score_risk_color),
+				("TEXTCOLOR", (1, 6), (1, 6), compliance_control_score_risk_text_color),
 				("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
 				("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
 				("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
@@ -2891,6 +2910,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		"",
 		f"Status: {compliance_control_score_risk_area['status']}",
 		f"Number of Controls: {compliance_control_score_risk_area['record_count']}",
+		f"Number of Controls with Compliance Percentages: {compliance_control_score_risk_area['percentage_count']}",
 		f"Number of Controls with no Compliance Records: {compliance_control_score_risk_area['both_zero_count']}",
 		f"Percentage of Controls with no Compliance Records: {compliance_control_score_risk_area['both_zero_percent']}",
 		f"Risk: {compliance_control_score_risk_area['risk']}",
