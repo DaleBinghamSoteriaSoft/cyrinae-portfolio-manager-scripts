@@ -218,7 +218,7 @@ def checklist_search_argument(hostname: str) -> str:
 
 
 def call_checklists_json_script_for_hostname(arguments: list[str], hostname: str) -> str:
-	return call_json_script("checklist", CHECKLISTS_SCRIPT_NAME, [*arguments, "limit=10000", checklist_search_argument(hostname)], "checklists")
+	return call_json_script("checklist", CHECKLISTS_SCRIPT_NAME, [*arguments, "limit=100", checklist_search_argument(hostname)], "checklists")
 
 
 def parse_json_value_from_output(output: str):
@@ -732,6 +732,8 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 	table_body_style = styles["BodyText"].clone("QuarantineTableBody")
 	table_body_style.fontSize = 8
 	table_body_style.leading = 9.5
+	table_total_style = table_body_style.clone("QuarantineTableTotal")
+	table_total_style.fontName = "Helvetica-Bold"
 	link_style = styles["BodyText"].clone("ContentsLink")
 	link_style.textColor = colors.blue
 
@@ -769,17 +771,30 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 					("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
 					("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
 					("VALIGN", (0, 0), (-1, -1), "TOP"),
-					("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F6F8FA")]),
+					("BACKGROUND", (0, 1), (-1, -1), colors.white),
 				]
 			)
 		)
 		return table
 
+	def listing_table_with_total(rows: list[dict[str, str]], include_artifact_title: bool = False) -> list:
+		return [
+			listing_table(rows, include_artifact_title),
+			Spacer(1, 6),
+			Paragraph(f"Total: {len(rows)}", table_total_style),
+		]
+
+	def draw_page_number(canvas, document) -> None:
+		canvas.saveState()
+		canvas.setFont("Helvetica", 9)
+		canvas.drawRightString(letter[0] - PDF_RIGHT_MARGIN, 18, f"Page {canvas.getPageNumber()}")
+		canvas.restoreState()
+
 	contents_table = Table(
 		[
 			[Paragraph("Page Title", table_header_style), Paragraph("Page Number", table_header_style)],
-			[contents_link("Hardware Patch Information", "hardware_patch_information"), "2"],
-			[contents_link("Hardware Checklist Inventory", "hardware_checklist_inventory"), "3"],
+			[contents_link("Possible Hardware Patch Quarantine List", "hardware_patch_information"), "2"],
+			[contents_link("Possible Hardware Checklist Inventory Quarantine List", "hardware_checklist_inventory"), "3"],
 		],
 		hAlign="LEFT",
 		colWidths=[380, 90],
@@ -816,15 +831,15 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 		Spacer(1, 18),
 		contents_table,
 		PageBreak(),
-		Paragraph('<a name="hardware_patch_information"/>Hardware Patch Information', styles["Heading1"]),
+		Paragraph('<a name="hardware_patch_information"/>Possible Hardware Patch Quarantine List', styles["Heading1"]),
 		Spacer(1, 12),
-		listing_table(report_data["hardware_patch_listing"]),
+		*listing_table_with_total(report_data["hardware_patch_listing"]),
 		PageBreak(),
-		Paragraph('<a name="hardware_checklist_inventory"/>Hardware Checklist Inventory', styles["Heading1"]),
+		Paragraph('<a name="hardware_checklist_inventory"/>Possible Hardware Checklist Inventory Quarantine List', styles["Heading1"]),
 		Spacer(1, 12),
-		listing_table(report_data["hardware_checklist_inventory"], include_artifact_title=True),
+		*listing_table_with_total(report_data["hardware_checklist_inventory"], include_artifact_title=True),
 	]
-	document.build(story)
+	document.build(story, onFirstPage=draw_page_number, onLaterPages=draw_page_number)
 	return True
 
 
@@ -832,7 +847,11 @@ def escape_pdf_text(value: str) -> str:
 	return safe_text(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def make_text_page(lines: list[str], font_size: int = 11) -> str:
+def approximate_pdf_text_width(value: str, font_size: int) -> float:
+	return len(value) * font_size * 0.5
+
+
+def make_text_page(lines: list[str], font_size: int = 11, page_number: int | None = None) -> str:
 	y = 750
 	leading = font_size + 4
 	commands = ["BT", f"/F1 {font_size} Tf", f"{PDF_LEFT_MARGIN} {y} Td"]
@@ -841,6 +860,10 @@ def make_text_page(lines: list[str], font_size: int = 11) -> str:
 			commands.append(f"0 -{leading} Td")
 		commands.append(f"({escape_pdf_text(line)}) Tj")
 	commands.append("ET")
+	if page_number is not None:
+		page_number_text = f"Page {page_number}"
+		page_number_x = 612 - PDF_RIGHT_MARGIN - approximate_pdf_text_width(page_number_text, 9)
+		commands.extend(["BT", "/F1 9 Tf", f"{page_number_x:.1f} 18 Td", f"({escape_pdf_text(page_number_text)}) Tj", "ET"])
 	return "\n".join(commands)
 
 
@@ -870,7 +893,7 @@ def fallback_table_lines(rows: list[dict[str, str]], include_artifact_title: boo
 			"----------------------------   ------------------------   -----------------------------------------------",
 		]
 	if not rows:
-		return [*lines, "No quarantine records found."]
+		return [*lines, "No quarantine records found.", "Total: 0"]
 	for row in rows:
 		hostname = display_value(row.get("hostname", "Unknown")) or "Unknown"
 		ip_address = display_value(row.get("IP address", ""))
@@ -890,7 +913,7 @@ def fallback_table_lines(rows: list[dict[str, str]], include_artifact_title: boo
 				)
 			else:
 				lines.append(f"{hostname[:28]:<28}   {ip_address[:24]:<24}   {reason_line}" if index == 0 else f"{'':<28}   {'':<24}   {reason_line}")
-	return lines
+	return [*lines, f"Total: {len(rows)}"]
 
 
 def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
@@ -916,14 +939,15 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
 				"Hardware Checklist Inventory                            3",
 			],
 			font_size=14,
+			page_number=1,
 		),
 	]
 	for index, lines in enumerate(patch_chunks):
 		page_lines = ["Hardware Patch Information", ""] if index == 0 else ["Hardware Patch Information (continued)", ""]
-		page_streams.append(make_text_page([*page_lines, *lines], font_size=9))
+		page_streams.append(make_text_page([*page_lines, *lines], font_size=9, page_number=patch_start_page_index + index + 1))
 	for index, lines in enumerate(checklist_inventory_chunks):
 		page_lines = ["Hardware Checklist Inventory", ""] if index == 0 else ["Hardware Checklist Inventory (continued)", ""]
-		page_streams.append(make_text_page([*page_lines, *lines], font_size=9))
+		page_streams.append(make_text_page([*page_lines, *lines], font_size=9, page_number=checklist_inventory_start_page_index + index + 1))
 
 	total_pages = len(page_streams)
 	page_object_number_for_index = lambda page_index: 4 + page_index * 2
