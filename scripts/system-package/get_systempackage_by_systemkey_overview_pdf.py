@@ -910,6 +910,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             if anchor and anchor not in self.section_page_numbers:
                 self.section_page_numbers[anchor] = self.page
 
+    def draw_page_number(canvas, doc) -> None:
+        canvas.saveState()
+        canvas.setFont("Helvetica", 9)
+        canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 18, f"Page {canvas.getPageNumber()}")
+        canvas.restoreState()
+
     styles = getSampleStyleSheet()
     table_header_style = styles["BodyText"].clone("CenteredTableHeader")
     table_header_style.alignment = 1
@@ -1477,7 +1483,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
     )
     story[-1].setStyle(poam_table_style(report_data["poam_resulting_risk_rows"], "risk", poam_risk_backgrounds))
     measurement_document = SectionPageNumberDocTemplate(BytesIO(), **document_options)
-    measurement_document.build(list(story))
+    measurement_document.build(list(story), onFirstPage=draw_page_number, onLaterPages=draw_page_number)
     for row in report_data["table_of_contents_rows"]:
         page_number = measurement_document.section_page_numbers.get(row["anchor"])
         if page_number:
@@ -1488,7 +1494,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
             story[story_index] = updated_contents_table
             break
     document = SectionPageNumberDocTemplate(str(output_path), **document_options)
-    document.build(story)
+    document.build(story, onFirstPage=draw_page_number, onLaterPages=draw_page_number)
     return True
 
 
@@ -1513,6 +1519,16 @@ def make_text_page(lines: list[str], font_size: int = 12, line_backgrounds: dict
     return "\n".join(content)
 
 
+def add_page_number_to_page_stream(page_stream: str, page_number: int, page_width: int) -> str:
+    return (
+        page_stream
+        + "\nBT\n"
+        + "/F1 9 Tf\n"
+        + f"1 0 0 1 {page_width - 72} 18 Tm ({escape_pdf_text(f'Page {page_number}')}) Tj\n"
+        + "ET"
+    )
+
+
 def make_text_pages(
     lines: list[str],
     font_size: int = 12,
@@ -1533,7 +1549,7 @@ def make_text_pages(
                 line_backgrounds=page_backgrounds,
             )
         )
-    return pages
+    return [add_page_number_to_page_stream(page_stream, page_number, 612) for page_number, page_stream in enumerate(pages, start=1)]
 
 
 def build_fallback_pages(report_data: dict[str, str]) -> list[str]:

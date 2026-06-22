@@ -679,6 +679,30 @@ def framework_value(system_package: dict, options: dict[str, str], json_keys: se
 	return optional_value(options, *option_keys)
 
 
+def build_framework_levels(package_framework: dict) -> list[dict[str, str]]:
+	framework_levels = package_framework.get("frameworkLevels", [])
+	if not isinstance(framework_levels, list):
+		return []
+
+	levels = []
+	for level in framework_levels:
+		if not isinstance(level, dict):
+			continue
+		category = safe_text(level.get("levelCategory")).strip()
+		value = safe_text(level.get("levelValue")).strip()
+		if category or value:
+			levels.append({"category": category, "value": value})
+	return levels
+
+
+def format_framework_level(level: dict[str, str]) -> str:
+	category = safe_text(level.get("category")).strip()
+	value = safe_text(level.get("value")).strip()
+	if category and value:
+		return f"{category}: {value}"
+	return category or value or "Unknown"
+
+
 def report_title_for_system(system_title: str) -> str:
 	return f"{display_value(system_title) or 'Unknown'} {REPORT_TITLE_SUFFIX}"
 
@@ -688,13 +712,20 @@ def build_report_data(system_key: str, options: dict[str, str], system_package: 
 	hardware_inventory = build_hardware_inventory(hardware_data)
 	hardware_patch_listing = build_hardware_patch_listing(hardware_data, patch_score_devices_data)
 	hardware_checklist_inventory = build_hardware_checklist_inventory(hardware_inventory, checklist_data_by_hostname)
+	package_framework = system_package.get("packageFramework", {})
+	if not isinstance(package_framework, dict):
+		package_framework = {}
 	return {
 		"system_key": system_key,
+		"title": safe_text(system_package.get("title")).strip() or system_title,
 		"system_title": system_title,
 		"report_title": report_title_for_system(system_title),
 		"system_description": build_system_description(system_package, options),
+		"number_of_checklists": safe_text(system_package.get("numberOfChecklists")).strip() or safe_text(checklist_record_count(checklist_data_by_hostname)),
 		"framework_title": framework_value(system_package, options, {"frameworkTitle", "frameworktitle", "framework_title"}, "frameworkTitle", "frameworktitle", "framework_title"),
+		"framework_acronym": framework_value(system_package, options, {"frameworkAcronym", "frameworkacronym", "framework_acronym"}, "frameworkAcronym", "frameworkacronym", "framework_acronym"),
 		"framework_version": framework_value(system_package, options, {"frameworkVersion", "frameworkversion", "framework_version"}, "frameworkVersion", "frameworkversion", "framework_version"),
+		"framework_levels": build_framework_levels(package_framework),
 		"generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
 		"checklist_count": checklist_record_count(checklist_data_by_hostname),
 		"hardware_count": len(hardware_inventory),
@@ -743,7 +774,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 	def listing_table(rows: list[dict[str, str]], include_artifact_title: bool = False) -> Table:
 		headers = ["Hostname", "IP"]
 		if include_artifact_title:
-			headers.append("Artifact Title")
+			headers.append("Checklist Title")
 		headers.append("Reason")
 		table_rows = [[Paragraph(header, table_header_style) for header in headers]]
 		if rows:
@@ -830,10 +861,18 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 		Paragraph(report_data["report_title"], styles["Title"]),
 		Spacer(1, 18),
 		Paragraph(f"Date Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
+		Paragraph(f"Title: {html.escape(report_data['title'])}", styles["Normal"]),
 		Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
-		Paragraph(f"System Title: {html.escape(report_data['system_title'])}", styles["Normal"]),
 		Paragraph(f"Description: {html.escape(report_data['system_description'])}", styles["Normal"]),
-		Paragraph(f"Number of Checklists: {html.escape(safe_text(report_data['checklist_count']))}", styles["Normal"]),
+		Paragraph(f"Number of Checklists: {html.escape(safe_text(report_data['number_of_checklists']))}", styles["Normal"]),
+		Paragraph(f"Framework Title: {html.escape(report_data['framework_title'])}", styles["Normal"]),
+		Paragraph(f"Framework Acronym: {html.escape(report_data['framework_acronym'])}", styles["Normal"]),
+		Paragraph(f"Framework Version: {html.escape(report_data['framework_version'])}", styles["Normal"]),
+		Paragraph("Framework Levels:", styles["Normal"]),
+		*([
+			Paragraph(html.escape(format_framework_level(level)), styles["Normal"])
+			for level in report_data["framework_levels"]
+		] if report_data["framework_levels"] else [Paragraph("None returned.", styles["Normal"])]),
 		Paragraph(f"Number of Hardware Devices: {html.escape(safe_text(report_data['hardware_count']))}", styles["Normal"]),
 		Spacer(1, 18),
 		contents_table,
@@ -946,10 +985,15 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
 				report_data["report_title"],
 				"",
 				f"Date Generated: {report_data['generated_at']}",
+				f"Title: {report_data['title']}",
 				f"System Key: {report_data['system_key']}",
-				f"System Title: {report_data['system_title']}",
 				f"Description: {report_data['system_description']}",
-				f"Number of Checklists: {report_data['checklist_count']}",
+				f"Number of Checklists: {report_data['number_of_checklists']}",
+				f"Framework Title: {report_data['framework_title']}",
+				f"Framework Acronym: {report_data['framework_acronym']}",
+				f"Framework Version: {report_data['framework_version']}",
+				"Framework Levels:",
+				*([f"- {format_framework_level(level)}" for level in report_data["framework_levels"]] or ["None returned."]),
 				f"Number of Hardware Devices: {report_data['hardware_count']}",
 				"",
 				"Page Title                                      Page Number",
@@ -966,7 +1010,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
 		page_streams.append(make_text_page([*page_lines, *lines], font_size=9, page_number=patch_start_page_index + index + 1))
 	for index, lines in enumerate(checklist_inventory_chunks):
 		page_lines = ["Hardware Checklist Inventory", ""] if index == 0 else ["Hardware Checklist Inventory (continued)", ""]
-  	page_streams.append(make_text_page([*page_lines, *lines], font_size=9, page_number=checklist_inventory_start_page_index + index + 1))
+		page_streams.append(make_text_page([*page_lines, *lines], font_size=9, page_number=checklist_inventory_start_page_index + index + 1))
 
 	total_pages = len(page_streams)
 	page_object_number_for_index = lambda page_index: 4 + page_index * 2
