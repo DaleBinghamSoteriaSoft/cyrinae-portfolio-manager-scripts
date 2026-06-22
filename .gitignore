@@ -223,5 +223,7 @@ __marimo__/
 *.pdf
 
 # do not save large NVD CVE JSON files in git history
-example-data-files/cve/nvdcve-2.0-*.json
-example-data-files/cve/master_cve_database.csv
+example-data-files/cve/*.json
+example-data-files/cve/*.csv
+example-data-files/kve/*.json
+example-data-files/kve/*.csv

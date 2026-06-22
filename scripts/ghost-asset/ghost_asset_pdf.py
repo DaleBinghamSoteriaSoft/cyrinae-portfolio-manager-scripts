@@ -788,6 +788,30 @@ def report_title_for_system(system_title: str) -> str:
 	return f"{safe_text(system_title).strip() or 'Unknown'} {REPORT_TITLE_SUFFIX}"
 
 
+def build_framework_levels(package_framework: dict) -> list[dict[str, str]]:
+	framework_levels = package_framework.get("frameworkLevels", [])
+	if not isinstance(framework_levels, list):
+		return []
+
+	levels = []
+	for level in framework_levels:
+		if not isinstance(level, dict):
+			continue
+		category = safe_text(level.get("levelCategory")).strip()
+		value = safe_text(level.get("levelValue")).strip()
+		if category or value:
+			levels.append({"category": category, "value": value})
+	return levels
+
+
+def format_framework_level(level: dict[str, str]) -> str:
+	category = safe_text(level.get("category")).strip()
+	value = safe_text(level.get("value")).strip()
+	if category and value:
+		return f"{category}: {value}"
+	return category or value or "Unknown"
+
+
 def build_hardware_device_summary(hardware_data, options: dict[str, str]) -> dict[str, object]:
 	records = hardware_records(hardware_data)
 	cover_limit = max(1, optional_int(options, "coverHardwareLimit", DEFAULT_COVER_HARDWARE_LIMIT))
@@ -813,11 +837,20 @@ def build_hardware_device_summary(hardware_data, options: dict[str, str]) -> dic
 
 def build_report_data(system_key: str, options: dict[str, str], system_package: dict, hardware_data, patch_data, checklist_data, ppsm_data) -> dict[str, object]:
 	system_title = build_system_title(system_package, options)
+	package_framework = system_package.get("packageFramework", {})
+	if not isinstance(package_framework, dict):
+		package_framework = {}
 	return {
 		"system_key": system_key,
+		"title": safe_text(system_package.get("title")).strip() or system_title,
 		"system_title": system_title,
 		"report_title": report_title_for_system(system_title),
 		"system_description": build_system_description(system_package, options),
+		"number_of_checklists": safe_text(system_package.get("numberOfChecklists")).strip() or "0",
+		"framework_title": safe_text(package_framework.get("frameworkTitle")).strip() or "Unknown",
+		"framework_acronym": safe_text(package_framework.get("frameworkAcronym")).strip() or "Unknown",
+		"framework_version": safe_text(package_framework.get("frameworkVersion")).strip() or "Unknown",
+		"framework_levels": build_framework_levels(package_framework),
 		"hardware_device_summary": build_hardware_device_summary(hardware_data, options),
 		"ghost_asset_analysis": build_ghost_asset_analysis(hardware_data, patch_data, checklist_data, ppsm_data, options),
 		"generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
@@ -891,6 +924,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, object]) 
 	except ImportError:
 		return False
 
+	def draw_page_number(canvas, doc) -> None:
+		canvas.saveState()
+		canvas.setFont("Helvetica", 9)
+		canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 18, f"Page {canvas.getPageNumber()}")
+		canvas.restoreState()
+
 	styles = getSampleStyleSheet()
 	left_title_style = styles["Title"].clone("LeftTitle")
 	left_title_style.alignment = 0
@@ -930,9 +969,18 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, object]) 
 		Paragraph(html.escape(safe_text(report_data["report_title"])), styles["Title"]),
 		Spacer(1, 18),
 		Paragraph(f"Date Generated: {html.escape(safe_text(report_data['generated_at']))}", styles["Normal"]),
-		Paragraph(f"System Title: {html.escape(safe_text(report_data['system_title']))}", styles["Normal"]),
+		Paragraph(f"Title: {html.escape(safe_text(report_data['title']))}", styles["Normal"]),
 		Paragraph(f"System Key: {html.escape(safe_text(report_data['system_key']))}", styles["Normal"]),
 		Paragraph(f"Description: {html.escape(safe_text(report_data['system_description']))}", styles["Normal"]),
+		Paragraph(f"Number of Checklists: {html.escape(safe_text(report_data['number_of_checklists']))}", styles["Normal"]),
+		Paragraph(f"Framework Title: {html.escape(safe_text(report_data['framework_title']))}", styles["Normal"]),
+		Paragraph(f"Framework Acronym: {html.escape(safe_text(report_data['framework_acronym']))}", styles["Normal"]),
+		Paragraph(f"Framework Version: {html.escape(safe_text(report_data['framework_version']))}", styles["Normal"]),
+		Paragraph("Framework Levels:", styles["Normal"]),
+		*([
+			Paragraph(html.escape(format_framework_level(level)), styles["Normal"])
+			for level in report_data["framework_levels"]
+		] if report_data["framework_levels"] else [Paragraph("None returned.", styles["Normal"])]),
 		Paragraph(f"Total Number of Hardware Devices: {hardware_total_count}", styles["Normal"]),
 	]
 	story.extend(
@@ -943,7 +991,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, object]) 
 		]
 	)
 	story.extend(build_evidence_table(analysis.get("evidence_rows", []), styles, table_style))
-	document.build(story)
+	document.build(story, onFirstPage=draw_page_number, onLaterPages=draw_page_number)
 	return True
 
 
@@ -959,6 +1007,16 @@ def make_text_page(lines: list[str], font_size: int = 14) -> str:
 		stream_lines.append(f"({escape_pdf_text(line)}) Tj")
 	stream_lines.append("ET")
 	return "\n".join(stream_lines)
+
+
+def add_page_number_to_page_stream(page_stream: str, page_number: int, page_width: int) -> str:
+	return (
+		page_stream
+		+ "\nBT\n"
+		+ "/F1 9 Tf\n"
+		+ f"1 0 0 1 {page_width - 72} 18 Tm ({escape_pdf_text(f'Page {page_number}')}) Tj\n"
+		+ "ET"
+	)
 
 
 def write_minimal_pdf(output_path: Path, report_data: dict[str, object]) -> None:
@@ -979,9 +1037,15 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, object]) -> None
 				safe_text(report_data["report_title"]),
 				"",
 				f"Date Generated: {report_data['generated_at']}",
-				f"System Title: {report_data['system_title']}",
+				f"Title: {report_data['title']}",
 				f"System Key: {report_data['system_key']}",
 				f"Description: {report_data['system_description']}",
+				f"Number of Checklists: {report_data['number_of_checklists']}",
+				f"Framework Title: {report_data['framework_title']}",
+				f"Framework Acronym: {report_data['framework_acronym']}",
+				f"Framework Version: {report_data['framework_version']}",
+				"Framework Levels:",
+				*([f"- {format_framework_level(level)}" for level in report_data["framework_levels"]] or ["None returned."]),
 				f"Total Number of Hardware Devices: {hardware_total_count}",
 				"",
 				*first_page_analysis_lines,
@@ -990,6 +1054,10 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, object]) -> None
 		),
 	]
 	page_streams.extend(make_text_page(chunk, font_size=12) for chunk in analysis_page_chunks)
+	page_streams = [
+		add_page_number_to_page_stream(page_stream, page_number, 612)
+		for page_number, page_stream in enumerate(page_streams, start=1)
+	]
 	objects = [
 		b"<< /Type /Catalog /Pages 2 0 R >>",
 		b"",
