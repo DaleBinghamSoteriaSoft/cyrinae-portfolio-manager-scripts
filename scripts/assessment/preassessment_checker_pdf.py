@@ -18,19 +18,39 @@ COMPLIANCE_ALLCONTROLS_SCRIPT_NAME = "get_systempackage_by_systemkey_compliance_
 POAM_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
 PATCH_SCORE_SCRIPT_NAME = "get_systempackage_by_systemkey_patchscore_json.py"
 APPROVED_PPS_SCRIPT_NAME = "get_systempackage_by_systemkey_approvedpps_json.py"
+GENERAL_APPROVED_PPS_SCRIPT_NAME = "get_approvedpps_json.py"
 TECH_VULNERABILITY_SCRIPT_NAME = "get_systempackage_by_systemkey_techvulnerabilitydata_json.py"
+COMPLIANCE_UPDATED_DATE_KEYS = {
+	"updated",
+	"updatedat",
+	"updateddate",
+	"updatedon",
+	"lastupdated",
+	"lastupdatedat",
+	"lastupdateddate",
+	"dateupdated",
+	"modified",
+	"modifiedat",
+	"modifieddate",
+	"modifiedon",
+}
 COMPLIANCE_GENERATED_DATE_KEYS = {
+	"generated",
 	"generatedat",
 	"generateddate",
 	"generatedon",
+	"created",
 	"dategenerated",
 	"compliancegeneratedat",
 	"compliancegenerateddate",
+	"lastgenerated",
 	"lastgeneratedat",
 	"lastgenerateddate",
 	"lastgeneratedon",
+	"lastrun",
 	"lastrunat",
 	"lastrundate",
+	"createdon",
 	"createdat",
 	"createddate",
 	"updatedat",
@@ -295,28 +315,62 @@ def count_records(data) -> int:
 
 
 def parse_date_value(value):
-	value_text = safe_text(value).strip()
+	value_text = safe_text(value)
+	value_text = value_text.replace("\u00a0", " ").replace("\u202f", " ").replace(",", " ")
+	value_text = re.sub(r"\s+", " ", value_text).strip()
 	if not value_text:
 		return None
-	if value_text.endswith("Z"):
-		value_text = value_text[:-1] + "+00:00"
+
+	normalized_value = value_text.replace("Z", "+00:00")
+	normalized_value = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", normalized_value)
 	try:
-		parsed_value = datetime.fromisoformat(value_text)
-		return parsed_value.date()
+		parsed_value = datetime.fromisoformat(normalized_value)
+		return parsed_value.astimezone().date() if parsed_value.tzinfo else parsed_value.date()
 	except ValueError:
 		pass
 
-	for date_format in ("%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %I:%M %p", "%m/%d/%Y", "%Y-%m-%d"):
-		try:
-			return datetime.strptime(value_text, date_format).date()
-		except ValueError:
-			continue
+	date_candidates = [value_text]
+	timezone_trimmed_value = re.sub(r"\s+[A-Z]{2,5}$", "", value_text)
+	if timezone_trimmed_value != value_text:
+		date_candidates.append(timezone_trimmed_value)
+
+	for candidate in date_candidates:
+		for date_format in ("%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %I:%M %p", "%m/%d/%Y", "%Y-%m-%d"):
+			try:
+				return datetime.strptime(candidate, date_format).date()
+			except ValueError:
+				continue
 	return None
 
 
 def is_compliance_generated_date_key(key: str) -> bool:
 	candidate = normalized_key(key)
 	return candidate in COMPLIANCE_GENERATED_DATE_KEYS or ("generated" in candidate and "date" in candidate)
+
+
+def is_compliance_updated_date_key(key: str) -> bool:
+	candidate = normalized_key(key)
+	return candidate in COMPLIANCE_UPDATED_DATE_KEYS or ("updated" in candidate and "date" in candidate) or ("modified" in candidate and "date" in candidate)
+
+
+def compliance_updated_dates(data) -> list:
+	dates = []
+	if isinstance(data, dict):
+		for key, value in data.items():
+			if is_compliance_updated_date_key(key):
+				parsed_date = parse_date_value(value)
+				if parsed_date is not None:
+					dates.append(parsed_date)
+			dates.extend(compliance_updated_dates(value))
+	elif isinstance(data, list):
+		for item in data:
+			dates.extend(compliance_updated_dates(item))
+	return dates
+
+
+def latest_compliance_updated_date(compliance_data):
+	dates = compliance_updated_dates(compliance_data)
+	return max(dates) if dates else None
 
 
 def compliance_generated_dates(data) -> list:
@@ -337,6 +391,15 @@ def compliance_generated_dates(data) -> list:
 def latest_compliance_generated_date(compliance_data):
 	dates = compliance_generated_dates(compliance_data)
 	return max(dates) if dates else None
+
+
+def latest_compliance_activity_date(compliance_data):
+	candidate_dates = [
+		latest_compliance_updated_date(compliance_data),
+		latest_compliance_generated_date(compliance_data),
+	]
+	resolved_dates = [candidate_date for candidate_date in candidate_dates if candidate_date is not None]
+	return max(resolved_dates) if resolved_dates else None
 
 
 def poam_activity_age_values(data) -> list[int]:
@@ -529,20 +592,56 @@ def build_patch_critical_open_check_row(patch_score_data) -> dict[str, str]:
 
 
 def build_approved_pps_check_row(approved_pps_data) -> dict[str, str]:
-	passed = has_json_data(approved_pps_data)
+	if not isinstance(approved_pps_data, dict):
+		return {
+			"item": "Approved ports list is loaded",
+			"passed": False,
+			"result": "Fail",
+			"details": "Approved ports list unavailable or not loaded",
+		}
+
+	system_package_data = approved_pps_data.get("systemPackageData")
+	general_data = approved_pps_data.get("generalData")
+	system_package_status = safe_text(approved_pps_data.get("systemPackageStatus")) or "Not 200"
+	general_status = safe_text(approved_pps_data.get("generalStatus")) or "Not 200"
+	system_package_has_data = has_json_data(system_package_data)
+	general_has_data = has_json_data(general_data)
+	passed = system_package_has_data or general_has_data
+	data_sources = []
+	if system_package_has_data:
+		data_sources.append("system package approved PPS")
+	if general_has_data:
+		data_sources.append("general approved PPS")
 	return {
 		"item": "Approved ports list is loaded",
 		"passed": passed,
 		"result": "Pass" if passed else "Fail",
-		"details": "Approved ports list returned" if passed else "Approved ports list unavailable or not loaded",
+		"details": (
+			"Approved ports list returned from " + ", ".join(data_sources)
+			if passed
+			else f"No approved ports data returned. System Package Approved PPS status: {system_package_status}; General Approved PPS status: {general_status}"
+		),
 	}
+
+
+def approved_pps_items(approved_pps_data) -> list:
+	if isinstance(approved_pps_data, list):
+		return approved_pps_data
+	if not isinstance(approved_pps_data, dict):
+		return []
+	for key in ["records", "items", "data", "results", "approvedPps", "approvedPPS", "approvedpps", "pps"]:
+		value = approved_pps_data.get(key)
+		if isinstance(value, list):
+			return value
+	return [approved_pps_data] if approved_pps_data else []
 
 
 def checklist_score_data(system_package):
 	if isinstance(system_package, dict):
-		score = system_package.get("score")
-		if isinstance(score, dict):
-			return score
+		for key in ["score", "checklistScore", "checklistscore"]:
+			score = system_package.get(key)
+			if isinstance(score, dict):
+				return score
 	return {}
 
 
@@ -557,22 +656,36 @@ def checklist_not_reviewed_count(system_package) -> int:
 	)
 
 
-def build_checklist_not_reviewed_check_row(system_package) -> dict[str, str]:
+def build_checklist_not_reviewed_check_row(system_package, checklists) -> dict[str, str]:
 	contains_checklists = bool_value(first_json_value_by_normalized_key(system_package, {"containschecklists"}))
+	checklist_count = count_records(checklists)
+	not_reviewed_count = checklist_not_reviewed_count(system_package)
+	if checklist_count == 0:
+		return {
+			"item": "No checklist vulnerabilities marked Not Reviewed when checklists are present",
+			"passed": True,
+			"result": "Pass",
+			"details": "Checklist count: 0",
+		}
+	if not_reviewed_count > 0:
+		return {
+			"item": "No checklist vulnerabilities marked Not Reviewed when checklists are present",
+			"passed": False,
+			"result": "Fail",
+			"details": f"Not Reviewed checklist vulnerabilities: {not_reviewed_count}; checklist count: {checklist_count}",
+		}
 	if not contains_checklists:
 		return {
 			"item": "No checklist vulnerabilities marked Not Reviewed when checklists are present",
 			"passed": True,
 			"result": "Pass",
-			"details": "containsChecklists is not true",
+			"details": f"Checklist count: {checklist_count}; containsChecklists is not true",
 		}
-	not_reviewed_count = checklist_not_reviewed_count(system_package)
-	passed = not_reviewed_count == 0
 	return {
 		"item": "No checklist vulnerabilities marked Not Reviewed when checklists are present",
-		"passed": passed,
-		"result": "Pass" if passed else "Fail",
-		"details": f"Not Reviewed checklist vulnerabilities: {not_reviewed_count}",
+		"passed": True,
+		"result": "Pass",
+		"details": f"Not Reviewed checklist vulnerabilities: 0; checklist count: {checklist_count}",
 	}
 
 
@@ -648,14 +761,14 @@ def build_hardware_scan_coverage_check_row(system_package, hardware_data) -> dic
 	}
 
 
-def build_preassessment_check_rows(system_package, hardware, compliance_data, control_score_data, poam_data, patch_score_data, approved_pps_data, tech_vulnerability_data, checklist_missing_data) -> list[dict[str, str]]:
-	generated_date = latest_compliance_generated_date(compliance_data)
+def build_preassessment_check_rows(system_package, checklists, hardware, compliance_data, control_score_data, poam_data, patch_score_data, approved_pps_data, tech_vulnerability_data, checklist_missing_data) -> list[dict[str, str]]:
+	generated_date = latest_compliance_activity_date(compliance_data)
 	cutoff_date = datetime.now().astimezone().date() - timedelta(days=30)
 	passed = generated_date is not None and generated_date >= cutoff_date
-	details = f"Last generated: {generated_date.isoformat()}" if generated_date else "No generated date found"
+	details = f"Last updated: {generated_date.isoformat()}" if generated_date else "No compliance updated date found"
 	return [
 		{
-			"item": "Compliance generated within the last 30 days",
+			"item": "Compliance updated within the last 30 days",
 			"passed": passed,
 			"result": "Pass" if passed else "Fail",
 			"details": details,
@@ -666,7 +779,7 @@ def build_preassessment_check_rows(system_package, hardware, compliance_data, co
 		build_poam_overdue_check_row(poam_data),
 		build_patch_critical_open_check_row(patch_score_data),
 		build_approved_pps_check_row(approved_pps_data),
-		build_checklist_not_reviewed_check_row(system_package),
+		build_checklist_not_reviewed_check_row(system_package, checklists),
 		build_tech_critical_vulnerability_check_row(system_package, tech_vulnerability_data),
 		build_checklist_missing_comments_check_row(system_package, checklist_missing_data),
 		build_hardware_scan_coverage_check_row(system_package, hardware),
@@ -744,9 +857,18 @@ def load_patch_score(arguments: list[str]):
 def load_approved_pps(arguments: list[str]):
 	source_script = Path(__file__).resolve().parents[1] / "ports-protocols-services" / APPROVED_PPS_SCRIPT_NAME
 	result = call_child_script_result(source_script, arguments)
-	if result.returncode != 0:
-		return None
-	return parse_json_value_from_output(result.stdout)
+	system_package_data = parse_json_value_from_output(result.stdout) if result.returncode == 0 else None
+
+	fallback_script = Path(__file__).resolve().parents[1] / "ports-protocols-services" / GENERAL_APPROVED_PPS_SCRIPT_NAME
+	fallback_result = call_child_script_result(fallback_script, arguments[:3])
+	general_data = parse_json_value_from_output(fallback_result.stdout) if fallback_result.returncode == 0 else None
+
+	return {
+		"systemPackageStatus": "200 OK" if result.returncode == 0 else "Not 200",
+		"systemPackageData": system_package_data,
+		"generalStatus": "200 OK" if fallback_result.returncode == 0 else "Not 200",
+		"generalData": general_data,
+	}
 
 
 def load_tech_vulnerability_data(arguments: list[str]):
@@ -778,7 +900,7 @@ def build_report_data(system_key: str, system_package, checklists, hardware, com
 		"system_description": build_system_description(system_package),
 		"checklist_count": str(count_records(checklists)),
 		"hardware_count": str(count_records(hardware)),
-		"check_rows": build_preassessment_check_rows(system_package, hardware, compliance_data, control_score_data, poam_data, patch_score_data, approved_pps_data, tech_vulnerability_data, checklist_missing_data),
+		"check_rows": build_preassessment_check_rows(system_package, checklists, hardware, compliance_data, control_score_data, poam_data, patch_score_data, approved_pps_data, tech_vulnerability_data, checklist_missing_data),
 		"generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z"),
 	}
 
