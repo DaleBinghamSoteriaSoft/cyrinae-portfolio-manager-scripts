@@ -221,3 +221,9 @@ __marimo__/
 .DS_Store
 
 *.pdf
+
+# do not save large NVD CVE JSON files in git history
+example-data-files/cve/*.json
+example-data-files/cve/*.csv
+example-data-files/kve/*.json
+example-data-files/kve/*.csv

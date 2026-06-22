@@ -738,51 +738,100 @@ def closest_reference_features(hostname: str, reference_hosts: list[str], featur
 	return reference_hostname, features_by_host.get(reference_hostname, set())
 
 
-def concise_software_difference_reason(hostname: str, reference_hosts: list[str], software_by_host: dict[str, set[str]]) -> str:
-	_, reference_features = closest_reference_features(hostname, reference_hosts, software_by_host)
-	host_features = software_by_host.get(hostname, set())
+def expected_count_for_hosts(counts_by_host: dict[str, int]) -> int:
+	count_frequencies = Counter(counts_by_host.values())
+	return sorted(count_frequencies.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+
+def feature_difference_reason(hostname: str, reference_hosts: list[str], features_by_host: dict[str, set[str]], label: str, expected_count: int, actual_count: int, max_features: int = 3) -> str:
+	_, reference_features = closest_reference_features(hostname, reference_hosts, features_by_host)
+	host_features = features_by_host.get(hostname, set())
+	differences = []
 	extra_features = sorted(host_features - reference_features, key=feature_display_name)
 	missing_features = sorted(reference_features - host_features, key=feature_display_name)
-	host_software_features = sorted(host_features, key=feature_display_name)
-	if extra_features:
-		return f"extra {feature_display_name(extra_features[0])}"
-	if missing_features:
-		return f"missing {feature_display_name(missing_features[0])}"
-	if host_software_features:
-		return f"software/version: {feature_display_name(host_software_features[0])}"
-	return "software/version unavailable"
+	feature_limit = max(1, min(max_features, abs(actual_count - expected_count)))
+	if actual_count > expected_count and extra_features:
+		differences.append(f"{label} extra " + ", ".join(feature_display_name(feature) for feature in extra_features[:feature_limit]))
+	elif actual_count < expected_count and missing_features:
+		differences.append(f"{label} missing " + ", ".join(feature_display_name(feature) for feature in missing_features[:feature_limit]))
+	else:
+		if extra_features:
+			differences.append(f"{label} extra " + ", ".join(feature_display_name(feature) for feature in extra_features[:feature_limit]))
+		if missing_features:
+			differences.append(f"{label} missing " + ", ".join(feature_display_name(feature) for feature in missing_features[:feature_limit]))
+	return "; ".join(differences) if differences else f"{label} count differs, but no comparable missing/extra details were found"
 
 
-def build_ppsm_count_anomaly_bullets(grouped_hosts: list[str], software_by_host: dict[str, set[str]], ppsm_by_host: dict[str, set[str]]) -> list[str]:
+def anomaly_count_text(label: str, count: int, expected_count: int) -> str:
+	if count == expected_count:
+		return f"{label} {count}"
+	return f"{label} {count} (expected {expected_count})"
+
+
+def build_count_anomaly_bullets(grouped_hosts: list[str], software_by_host: dict[str, set[str]], ppsm_by_host: dict[str, set[str]]) -> list[str]:
 	if len(grouped_hosts) < 2:
 		return []
 	ppsm_counts = {hostname: len(ppsm_by_host.get(hostname, set())) for hostname in grouped_hosts}
 	software_counts = {hostname: len(software_by_host.get(hostname, set())) for hostname in grouped_hosts}
-	count_frequencies = Counter(ppsm_counts.values())
-	expected_count = sorted(count_frequencies.items(), key=lambda item: (-item[1], item[0]))[0][0]
-	reference_hosts = sorted(hostname for hostname, ppsm_count in ppsm_counts.items() if ppsm_count == expected_count)
-	anomaly_hosts = sorted(hostname for hostname, ppsm_count in ppsm_counts.items() if ppsm_count != expected_count)
-	if not anomaly_hosts:
+	expected_ppsm_count = expected_count_for_hosts(ppsm_counts)
+	expected_software_count = expected_count_for_hosts(software_counts)
+	ppsm_reference_hosts = sorted(hostname for hostname, ppsm_count in ppsm_counts.items() if ppsm_count == expected_ppsm_count)
+	software_reference_hosts = sorted(hostname for hostname, software_count in software_counts.items() if software_count == expected_software_count)
+	ppsm_anomaly_hosts = sorted(
+		hostname
+		for hostname in grouped_hosts
+		if ppsm_counts[hostname] != expected_ppsm_count
+	)
+	software_anomaly_hosts = sorted(
+		hostname
+		for hostname in grouped_hosts
+		if software_counts[hostname] != expected_software_count
+	)
+	if not ppsm_anomaly_hosts and not software_anomaly_hosts:
 		return []
-	return [
-		f"{hostname}: Software {software_counts[hostname]}, PPS {ppsm_counts[hostname]} (expected {expected_count}) — {concise_software_difference_reason(hostname, reference_hosts, software_by_host)}."
-		for hostname in anomaly_hosts
-	]
+	bullets = []
+	for hostname in ppsm_anomaly_hosts:
+		bullet_prefix = (
+			f"{hostname}: Software {software_counts[hostname]}, "
+			f"{anomaly_count_text('PPS', ppsm_counts[hostname], expected_ppsm_count)}"
+		)
+		bullets.append(
+			f"{bullet_prefix} — {feature_difference_reason(hostname, ppsm_reference_hosts, ppsm_by_host, 'PPS', expected_ppsm_count, ppsm_counts[hostname])}."
+		)
+	for hostname in software_anomaly_hosts:
+		bullet_prefix = (
+			f"{hostname}: {anomaly_count_text('Software', software_counts[hostname], expected_software_count)}, "
+			f"PPS {ppsm_counts[hostname]}"
+		)
+		bullets.append(
+			f"{bullet_prefix} — {feature_difference_reason(hostname, software_reference_hosts, software_by_host, 'Software', expected_software_count, software_counts[hostname], abs(software_counts[hostname] - expected_software_count))}."
+		)
+	return bullets
+
+
+def build_operating_system_anomalies(hostnames: list[str], os_by_host: dict[str, str], software_by_host: dict[str, set[str]], ppsm_by_host: dict[str, set[str]], options: dict[str, str]) -> dict[str, list[str]]:
+	anomaly_limit = max(1, optional_int(options, "targetAnomalyLimit", DEFAULT_TARGET_ANOMALY_LIMIT))
+	groups = defaultdict(list)
+	for hostname in hostnames:
+		operating_system = display_value(os_by_host.get(hostname, "Unknown")) or "Unknown"
+		groups[operating_system].append(hostname)
+	anomalies = {}
+	for operating_system, grouped_hosts in sorted(groups.items(), key=lambda item: (normalized_value(item[0]) == "unknown", normalized_value(item[0]))):
+		bullets = build_count_anomaly_bullets(sorted(grouped_hosts), software_by_host, ppsm_by_host)
+		if bullets:
+			anomalies[operating_system] = bullets[:anomaly_limit]
+	return anomalies
 
 
 def build_target_operating_system_anomalies(hostnames: list[str], os_by_host: dict[str, str], software_by_host: dict[str, set[str]], ppsm_by_host: dict[str, set[str]], options: dict[str, str]) -> dict[str, list[str]]:
 	target_operating_system = optional_value(options, "anomalyOperatingSystem", "targetAnomalyOperatingSystem")
 	if target_operating_system == "Unknown":
-		target_operating_system = TARGET_ANOMALY_OPERATING_SYSTEM
+		return build_operating_system_anomalies(hostnames, os_by_host, software_by_host, ppsm_by_host, options)
 	target_key = normalized_value(target_operating_system)
-	target_hosts = sorted(
-		hostname
-		for hostname in hostnames
-		if normalized_value(os_by_host.get(hostname, "Unknown")) == target_key
-	)
+	target_hosts = sorted(hostname for hostname in hostnames if normalized_value(os_by_host.get(hostname, "Unknown")) == target_key)
 	if not target_hosts:
 		return {}
-	bullets = build_ppsm_count_anomaly_bullets(target_hosts, software_by_host, ppsm_by_host)
+	bullets = build_count_anomaly_bullets(target_hosts, software_by_host, ppsm_by_host)
 	anomaly_limit = max(1, optional_int(options, "targetAnomalyLimit", DEFAULT_TARGET_ANOMALY_LIMIT))
 	return {target_operating_system: bullets[:anomaly_limit]}
 
@@ -1147,7 +1196,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, object]) 
 	]
 	hardware_summary = report_data.get("hardware_device_summary", {})
 	if isinstance(hardware_summary, dict):
-		story.extend(build_cover_hardware_section(hardware_summary, styles, table_style))
+		story.append(Paragraph(f"Total Number of Hardware Devices: {int(hardware_summary.get('total_count', 0) or 0)}", styles["Normal"]))
 	story.extend(
 		[
 			PageBreak(),
@@ -1216,18 +1265,8 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, object]) -> None
 	if not isinstance(hardware_summary, dict):
 		hardware_summary = {}
 	hardware_lines = [
-		"",
-		"Total Number of Hardware Devices",
+		f"Total Number of Hardware Devices: {int(hardware_summary.get('total_count', 0) or 0)}",
 	]
-	devices = hardware_summary.get("devices", [])
-	if isinstance(devices, list) and devices:
-		for device in devices:
-			if isinstance(device, dict):
-				hardware_lines.append(truncated_text(f"{device.get('asset', 'Unknown')}", 88))
-	else:
-		hardware_lines.append("No hardware devices were found.")
-	if int(hardware_summary.get("total_count", 0) or 0) > int(hardware_summary.get("display_count", 0) or 0):
-		hardware_lines.append(f"Showing first {hardware_summary.get('display_count', 0)} of {hardware_summary.get('total_count', 0)} hardware devices.")
 	overlap_lines = build_fallback_overlap_lines(analysis)
 	overlap_page_chunks = [overlap_lines[index:index + 30] for index in range(0, len(overlap_lines), 30)] or [["Configuration Overlap Analysis", "", "No hostname-matched assets found in software or PPS records."]]
 	page_streams = [
