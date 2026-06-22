@@ -38,5 +38,8 @@ Most of the scripts below you pass in the root URL, your OpenRMF<sup>&reg;</sup>
 | <a href="./scripts/poam_prioritization_pdf.py">POAM Prioritizing</a>| Optimization, weighted scoring algorithms, categorical data handling of POAM items to show greatest impact for prioritizing work. |
 | <a href="./scripts/assessment/preassessment_checker_pdf.py">Pre-Assessment Checker</a>| Check that you are ready for assessment with high level checks across all your compliance data and vulnerabilities. |
 | <a href="./scripts/ghost_asset_pdf.py">Ghost Assets</a>| Find if there are assets in your listing across hardware, checklists, and ports/protocols/services that are not related to devices in your system package. |
-| Quarantine Testing (WIP)| Based on settings, find devices that meet certain criteria that warrant investigating for quarantine. |
-| Software Inventory Lifecycle (WIP)| Track current system package software and versions against known end of life (EOL) information to alert on those coming up for EOL. |
+| <a href="./scripts/quarantine-checker/quarantine_checker_pdf.py">Quarantine Testing</a>| Based on settings, find devices that meet certain criteria that warrant investigating for quarantine. |
+| Patch CVE Listing| Show your open patch vulnerabilities with CVE data matching the CVEs listed in patch descriptions (if any) with scores. |
+| Patch KVE Listing| Show your open patch vulnerabilities with KVE data matching the CVEs listed in patch descriptions (if any) with dates. |
+| Container Scan CVE Listing| Show your open container scan vulnerabilities with CVE data matching the CVEs listed in patch descriptions (if any) with scores. |
+| Container Scan KVE Listing| Show your open container scan vulnerabilities with KVE data matching the CVEs listed in patch descriptions (if any) with dates. |
