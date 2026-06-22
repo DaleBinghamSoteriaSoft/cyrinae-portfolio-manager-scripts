@@ -562,6 +562,8 @@ def feature_display_name(feature: str) -> str:
 		if len(parts) > 2 and parts[2]:
 			return f"Software: {parts[1]} ({parts[2]})"
 		return f"Software: {parts[1]}"
+	if parts[0] == "patch-count" and len(parts) >= 2:
+		return f"Patch Count: {parts[1]}"
 	if parts[0] == "port" and len(parts) >= 4:
 		return f"Port: {parts[1].upper()} {parts[2]} {parts[3]}"
 	return feature
@@ -665,6 +667,15 @@ def patch_display_value(patch_row) -> str:
 	return patch_text
 
 
+def patch_feature(patch_row: dict) -> str:
+	if not isinstance(patch_row, dict):
+		return ""
+	patch_count = patch_row.get("patch_count")
+	if patch_count is None:
+		return ""
+	return f"patch-count:{patch_count}"
+
+
 def add_operating_systems_from_records(os_by_host: dict[str, str], records: list[dict]) -> None:
 	for record in records:
 		hostname = record_hostname(record)
@@ -722,6 +733,23 @@ def build_operating_system_group_rows(hostnames: list[str], os_by_host: dict[str
 			}
 		)
 	return rows
+
+
+def grouped_hosts_by_operating_system(hostnames: list[str], os_by_host: dict[str, str]) -> list[tuple[str, list[str]]]:
+	groups = {}
+	for hostname in hostnames:
+		operating_system = display_value(os_by_host.get(hostname, "Unknown")) or "Unknown"
+		operating_system_key = normalized_value(operating_system) or "unknown"
+		if operating_system_key not in groups:
+			groups[operating_system_key] = {"operating_system": operating_system, "hostnames": []}
+		groups[operating_system_key]["hostnames"].append(hostname)
+	return [
+		(
+			safe_text(group["operating_system"]) or "Unknown",
+			sorted(group["hostnames"]),
+		)
+		for _, group in sorted(groups.items(), key=lambda item: (item[0] == "unknown", item[0]))
+	]
 
 
 def closest_reference_features(hostname: str, reference_hosts: list[str], features_by_host: dict[str, set[str]]) -> tuple[str, set[str]]:
@@ -836,27 +864,37 @@ def build_target_operating_system_anomalies(hostnames: list[str], os_by_host: di
 	return {target_operating_system: bullets[:anomaly_limit]}
 
 
-def build_similarity_rows(profiles: dict[str, set[str]]) -> tuple[list[dict[str, str]], dict[str, float]]:
-	if len(profiles) < 2:
-		return [], {hostname: 1.0 for hostname in profiles}
+def overlap_score_text(score: float | None) -> str:
+	return f"{score * 100:.1f}%" if score is not None else "N/A"
 
-	scores_by_host = {hostname: [] for hostname in profiles}
-	for left_host, right_host in combinations(sorted(profiles), 2):
-		score = jaccard_similarity(profiles[left_host], profiles[right_host])
-		scores_by_host[left_host].append(score)
-		scores_by_host[right_host].append(score)
 
-	average_scores = {
-		hostname: (sum(scores) / len(scores) if scores else 1.0)
-		for hostname, scores in scores_by_host.items()
-	}
+def overlap_sort_key(score: float | None) -> tuple[int, float]:
+	return (1, 1.0) if score is None else (0, score)
+
+
+def build_similarity_rows(profiles: dict[str, set[str]], os_by_host: dict[str, str]) -> tuple[list[dict[str, str]], dict[str, float | None]]:
+	if not profiles:
+		return [], {}
+
+	average_scores = {hostname: None for hostname in profiles}
+	for _, grouped_hosts in grouped_hosts_by_operating_system(sorted(profiles), os_by_host):
+		if len(grouped_hosts) < 2:
+			continue
+		scores_by_host = {hostname: [] for hostname in grouped_hosts}
+		for left_host, right_host in combinations(grouped_hosts, 2):
+			score = jaccard_similarity(profiles[left_host], profiles[right_host])
+			scores_by_host[left_host].append(score)
+			scores_by_host[right_host].append(score)
+		for hostname, scores in scores_by_host.items():
+			average_scores[hostname] = sum(scores) / len(scores) if scores else None
+
 	rows = [
 		{
 			"hostname": hostname,
-			"average_overlap": f"{average_scores[hostname] * 100:.1f}%",
+			"average_overlap": overlap_score_text(average_scores[hostname]),
 			"feature_count": str(len(profiles[hostname])),
 		}
-		for hostname in sorted(profiles, key=lambda host: (average_scores[host], host))
+		for hostname in sorted(profiles, key=lambda host: (overlap_sort_key(average_scores[host]), host))
 	]
 	return rows, average_scores
 
@@ -870,52 +908,69 @@ def build_configuration_overlap_analysis(hardware_data, software_data, ppsm_data
 	patch_summary = build_patch_score_summary(patch_score_devices_data)
 	patch_by_host = patch_summary["patch_by_host"] if isinstance(patch_summary.get("patch_by_host"), dict) else {}
 	os_by_host = build_operating_systems_by_host(hardware_data, software_data, ppsm_data, patch_by_host)
+	for hostname, patch_row in patch_by_host.items():
+		profiles.setdefault(hostname, set())
+		feature = patch_feature(patch_row)
+		if feature:
+			profiles[hostname].add(feature)
 	asset_count = len(profiles)
 	feature_support = Counter(feature for features in profiles.values() for feature in features)
-	baseline_minimum_count = max(1, int((asset_count * baseline_support_percent + 99.999) // 100)) if asset_count else 0
-	baseline_features = sorted(
-		[feature for feature, count in feature_support.items() if count >= baseline_minimum_count],
-		key=lambda feature: (-feature_support[feature], feature),
-	)
-	similarity_rows, average_scores = build_similarity_rows(profiles)
+	operating_system_groups = grouped_hosts_by_operating_system(sorted(profiles), os_by_host)
+	similarity_rows, average_scores = build_similarity_rows(profiles, os_by_host)
 
 	outlier_rows = []
 	outlier_hosts = set()
-	for hostname, features in profiles.items():
-		missing_baseline = [feature for feature in baseline_features if feature not in features]
-		unique_features = sorted([feature for feature in features if feature_support[feature] == 1])
-		average_overlap = average_scores.get(hostname, 1.0)
-		if average_overlap < jaccard_threshold or missing_baseline or unique_features:
-			outlier_hosts.add(hostname)
-			outlier_rows.append(
+	baseline_rows = []
+	baseline_feature_count = 0
+	baseline_group_minimums = []
+	for operating_system, grouped_hosts in operating_system_groups:
+		if len(grouped_hosts) < 2:
+			continue
+		group_feature_support = Counter(feature for hostname in grouped_hosts for feature in profiles.get(hostname, set()))
+		baseline_minimum_count = max(1, int((len(grouped_hosts) * baseline_support_percent + 99.999) // 100))
+		baseline_group_minimums.append(baseline_minimum_count)
+		baseline_features = sorted(
+			[feature for feature, count in group_feature_support.items() if count >= baseline_minimum_count],
+			key=lambda feature: (-group_feature_support[feature], feature),
+		)
+		baseline_feature_count += len(baseline_features)
+		for feature in baseline_features[:top_baseline_features]:
+			baseline_rows.append(
 				{
-					"hostname": hostname,
-					"average_overlap": f"{average_overlap * 100:.1f}%",
-					"software_count": str(len(software_by_host.get(hostname, set()))),
-					"ppsm_count": str(len(ppsm_by_host.get(hostname, set()))),
-					"missing_baseline_count": str(len(missing_baseline)),
-					"unique_feature_count": str(len(unique_features)),
-					"missing_baseline": ", ".join(feature_display_name(feature) for feature in missing_baseline[:5]) or "None",
-					"unique_features": ", ".join(feature_display_name(feature) for feature in unique_features[:5]) or "None",
+					"operating_system": operating_system,
+					"feature": feature_display_name(feature),
+					"support": f"{group_feature_support[feature]}/{len(grouped_hosts)}",
+					"support_percent": f"{(group_feature_support[feature] / len(grouped_hosts) * 100):.1f}%",
 				}
 			)
+		for hostname in grouped_hosts:
+			features = profiles.get(hostname, set())
+			missing_baseline = [feature for feature in baseline_features if feature not in features]
+			unique_features = sorted([feature for feature in features if group_feature_support[feature] == 1])
+			average_overlap = average_scores.get(hostname)
+			if (average_overlap is not None and average_overlap < jaccard_threshold) or missing_baseline or unique_features:
+				outlier_hosts.add(hostname)
+				outlier_rows.append(
+					{
+						"hostname": hostname,
+						"average_overlap": overlap_score_text(average_overlap),
+						"software_count": str(len(software_by_host.get(hostname, set()))),
+						"ppsm_count": str(len(ppsm_by_host.get(hostname, set()))),
+						"missing_baseline_count": str(len(missing_baseline)),
+						"unique_feature_count": str(len(unique_features)),
+						"missing_baseline": ", ".join(feature_display_name(feature) for feature in missing_baseline[:5]) or "None",
+						"unique_features": ", ".join(feature_display_name(feature) for feature in unique_features[:5]) or "None",
+					}
+				)
 	outlier_rows.sort(key=lambda row: (float(row["average_overlap"].rstrip("%")), -int(row["unique_feature_count"]), row["hostname"]))
-	baseline_rows = [
-		{
-			"feature": feature_display_name(feature),
-			"support": f"{feature_support[feature]}/{asset_count}",
-			"support_percent": f"{(feature_support[feature] / asset_count * 100) if asset_count else 0:.1f}%",
-		}
-		for feature in baseline_features[:top_baseline_features]
-	]
-	all_row_hosts = sorted(set(profiles) | set(patch_by_host), key=lambda host: (average_scores.get(host, 1.0), host))
+	all_row_hosts = sorted(set(profiles) | set(patch_by_host), key=lambda host: (overlap_sort_key(average_scores.get(host)), host))
 	os_group_rows = build_operating_system_group_rows(all_row_hosts, os_by_host, software_by_host, ppsm_by_host, patch_by_host)
 	target_operating_system_anomalies = build_target_operating_system_anomalies(all_row_hosts, os_by_host, software_by_host, ppsm_by_host, options)
 	host_rows = [
 		{
 			"hostname": hostname,
 			"operating_system": os_by_host.get(hostname, "Unknown"),
-			"average_overlap": f"{average_scores.get(hostname, 1.0) * 100:.1f}%" if hostname in profiles else "N/A",
+			"average_overlap": overlap_score_text(average_scores.get(hostname)) if hostname in profiles else "N/A",
 			"software_count": str(len(software_by_host.get(hostname, set()))),
 			"ppsm_count": str(len(ppsm_by_host.get(hostname, set()))),
 			"patch_count": patch_display_value(patch_by_host.get(hostname)),
@@ -934,9 +989,9 @@ def build_configuration_overlap_analysis(hardware_data, software_data, ppsm_data
 		"software_feature_count": len({feature for features in software_by_host.values() for feature in features}),
 		"ppsm_feature_count": len({feature for features in ppsm_by_host.values() for feature in features}),
 		"total_feature_count": len(feature_support),
-		"baseline_feature_count": len(baseline_features),
+		"baseline_feature_count": baseline_feature_count,
 		"baseline_support_percent": f"{baseline_support_percent:.1f}%",
-		"baseline_minimum_count": baseline_minimum_count,
+		"baseline_minimum_count": count_distribution_text(baseline_group_minimums) if baseline_group_minimums else "N/A",
 		"jaccard_threshold": f"{jaccard_threshold * 100:.1f}%",
 		"outlier_count": len(outlier_rows),
 		"baseline_rows": baseline_rows,
@@ -1102,7 +1157,7 @@ def build_overlap_summary_lines(analysis: dict[str, object]) -> list[str]:
 		f"Software Features: {analysis['software_feature_count']}",
 		f"Ports/Protocols/Services Features: {analysis['ppsm_feature_count']}",
 		f"Total Comparable Features: {analysis['total_feature_count']}",
-		f"Baseline Support Threshold: {analysis['baseline_support_percent']} ({analysis['baseline_minimum_count']} assets minimum)",
+		f"Baseline Support Threshold: {analysis['baseline_support_percent']} (per-OS cohort minimum: {analysis['baseline_minimum_count']})",
 		f"Jaccard Outlier Threshold: {analysis['jaccard_threshold']}",
 		f"Baseline Features Discovered: {analysis['baseline_feature_count']}",
 		f"Potential Drift/Outlier Assets: {analysis['outlier_count']}",
