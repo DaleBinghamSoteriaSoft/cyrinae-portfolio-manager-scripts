@@ -1010,7 +1010,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
 		page_streams.append(make_text_page([*page_lines, *lines], font_size=9, page_number=patch_start_page_index + index + 1))
 	for index, lines in enumerate(checklist_inventory_chunks):
 		page_lines = ["Hardware Checklist Inventory", ""] if index == 0 else ["Hardware Checklist Inventory (continued)", ""]
-  	page_streams.append(make_text_page([*page_lines, *lines], font_size=9, page_number=checklist_inventory_start_page_index + index + 1))
+		page_streams.append(make_text_page([*page_lines, *lines], font_size=9, page_number=checklist_inventory_start_page_index + index + 1))
 
 	total_pages = len(page_streams)
 	page_object_number_for_index = lambda page_index: 4 + page_index * 2
