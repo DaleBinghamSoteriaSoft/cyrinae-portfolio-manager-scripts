@@ -804,6 +804,13 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 		leftMargin=PDF_LEFT_MARGIN,
 		rightMargin=PDF_RIGHT_MARGIN,
 	)
+
+	def draw_page_number(canvas, document) -> None:
+		canvas.saveState()
+		canvas.setFont("Helvetica", 9)
+		canvas.drawRightString(document.pagesize[0] - document.rightMargin, 24, f"Page {document.page}")
+		canvas.restoreState()
+
 	story = [
 		Paragraph(report_data["report_title"], styles["Title"]),
 		Spacer(1, 18),
@@ -824,7 +831,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
 		Spacer(1, 12),
 		listing_table(report_data["hardware_checklist_inventory"], include_artifact_title=True),
 	]
-	document.build(story)
+	document.build(story, onFirstPage=draw_page_number, onLaterPages=draw_page_number)
 	return True
 
 
@@ -842,6 +849,18 @@ def make_text_page(lines: list[str], font_size: int = 11) -> str:
 		commands.append(f"({escape_pdf_text(line)}) Tj")
 	commands.append("ET")
 	return "\n".join(commands)
+
+
+def add_text_page_number(page_stream: str, page_number: int) -> str:
+	return "\n".join(
+		[
+			page_stream,
+			"BT",
+			"/F1 9 Tf",
+			f"1 0 0 1 530 24 Tm ({escape_pdf_text(f'Page {page_number}')}) Tj",
+			"ET",
+		]
+	)
 
 
 def chunk_lines(lines: list[str], chunk_size: int) -> list[list[str]]:
@@ -924,6 +943,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
 	for index, lines in enumerate(checklist_inventory_chunks):
 		page_lines = ["Hardware Checklist Inventory", ""] if index == 0 else ["Hardware Checklist Inventory (continued)", ""]
 		page_streams.append(make_text_page([*page_lines, *lines], font_size=9))
+	page_streams = [add_text_page_number(page_stream, page_number) for page_number, page_stream in enumerate(page_streams, start=1)]
 
 	total_pages = len(page_streams)
 	page_object_number_for_index = lambda page_index: 4 + page_index * 2
