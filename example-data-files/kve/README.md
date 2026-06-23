@@ -1,4 +1,4 @@
-# Locate and save the master KVE CSV file
+# Locate and save the master KVE Data file
 
 * go to https://github.com/cisagov/kev-data/blob/develop/ or the staging directory in GitHub
 * download the `known_exploited_vulnerabilities.json` file
