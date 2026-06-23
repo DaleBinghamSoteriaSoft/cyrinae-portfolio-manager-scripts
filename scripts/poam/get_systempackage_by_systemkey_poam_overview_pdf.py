@@ -33,6 +33,7 @@ from pathlib import Path
 
 REQUIRED_ARGUMENT_COUNT = 5
 SOURCE_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
+SYSTEM_PACKAGE_SOURCE_SCRIPT_NAME = "get_systempackage_by_systemkey_json.py"
 STATUS_COLUMNS = ["Ongoing", "Completed", "Accepted"]
 RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low"]
 POAM_TYPE_DEFINITIONS = [
@@ -103,6 +104,22 @@ def call_poam_json_script(arguments: list[str]) -> str:
     return result.stdout
 
 
+def call_systempackage_json_script(arguments: list[str]) -> str:
+    source_script = Path(__file__).resolve().parents[1] / "system-package" / SYSTEM_PACKAGE_SOURCE_SCRIPT_NAME
+    command = [get_project_python_executable(), str(source_script), *arguments]
+    result = subprocess.run(command, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        print("ERROR: The system package JSON script failed.")
+        if result.stdout.strip():
+            print(result.stdout.strip())
+        if result.stderr.strip():
+            print(result.stderr.strip())
+        sys.exit(result.returncode)
+
+    return result.stdout
+
+
 def parse_json_value_from_output(output: str):
     decoder = json.JSONDecoder()
     for index, character in enumerate(output):
@@ -117,6 +134,15 @@ def parse_json_value_from_output(output: str):
     print("ERROR: Could not find JSON in the POAM JSON script output.")
     print(output)
     raise ValueError("Could not find JSON in the POAM JSON script output.")
+
+
+def parse_json_object_from_output(output: str) -> dict:
+    parsed = parse_json_value_from_output(output)
+    if isinstance(parsed, dict):
+        return parsed
+    print("ERROR: Could not find a JSON object in the system package JSON script output.")
+    print(output)
+    sys.exit(1)
 
 
 def safe_text(value) -> str:
@@ -510,18 +536,40 @@ def build_type_residual_risk_mitigations_rows(records: list[dict]) -> list[dict[
     ]
 
 
-def build_report_data(poamdata, system_key: str) -> dict:
-    records = poam_records(poamdata)
-    system_title = ""
+def first_system_metadata_value(poamdata, records: list[dict], keys: list[str]) -> str:
+    if isinstance(poamdata, dict):
+        value = first_value(poamdata, keys)
+        if value:
+            return value
+
     for record in records:
-        system_title = first_value(record, ["systemTitle", "title", "systemName"])
-        if system_title:
-            break
+        value = first_value(record, keys)
+        if value:
+            return value
+    return ""
+
+
+def build_report_data(poamdata, system_key: str, system_package=None) -> dict:
+    records = poam_records(poamdata)
+    if not isinstance(system_package, dict):
+        system_package = {}
+
+    system_title = safe_text(system_package.get("title")).strip() or first_system_metadata_value(
+        poamdata,
+        records,
+        ["systemTitle", "title", "systemName"],
+    )
+    system_description = safe_text(system_package.get("description")).strip() or first_system_metadata_value(
+        poamdata,
+        records,
+        ["systemDescription", "systemDescriptionString", "systemDesc", "systemSummary", "systemOverview"],
+    )
 
     return {
         "system_key": system_key,
         "report_title": report_title_for_system(system_key, system_title),
         "system_title": system_title or "Unknown",
+        "system_description": system_description or "Unknown",
         "status_totals": build_status_totals(records),
         "type_status_rows": build_type_status_rows(records),
         "scheduled_completion_type_status_rows": build_scheduled_completion_type_status_rows(records),
@@ -931,6 +979,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Paragraph(f"Date Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
         Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
         Paragraph(f"System Title: {html.escape(report_data['system_title'])}", styles["Normal"]),
+        Paragraph(f"Description: {html.escape(report_data['system_description'])}", styles["Normal"]),
         Spacer(1, 18),
         Paragraph("Table of Contents", styles["Heading2"]),
         Spacer(1, 8),
@@ -1132,6 +1181,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
                 f"Date Generated: {report_data['generated_at']}",
                 f"System Key: {report_data['system_key']}",
                 f"System Title: {report_data['system_title']}",
+                f"Description: {report_data['system_description']}",
                 "",
                 *contents_lines,
             ],
@@ -1199,9 +1249,10 @@ if len(sys.argv) < REQUIRED_ARGUMENT_COUNT:
     sys.exit(1)
 
 system_key = sys.argv[4]
+system_package = parse_json_object_from_output(call_systempackage_json_script(sys.argv[1:]))
 poam_output = call_poam_json_script(sys.argv[1:])
 poamdata = parse_json_value_from_output(poam_output)
-report_data = build_report_data(poamdata, system_key)
+report_data = build_report_data(poamdata, system_key, system_package)
 output_filename = f"OpenRMFPro-POAM-Overview-{safe_filename_value(report_data['system_key'])}.pdf"
 output_path = Path(output_filename)
 pdf_writer = write_pdf(output_path, report_data)
