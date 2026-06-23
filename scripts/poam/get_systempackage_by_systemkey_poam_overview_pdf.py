@@ -554,6 +554,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             if anchor and anchor not in self.section_page_numbers:
                 self.section_page_numbers[anchor] = self.page
 
+    def draw_page_number(canvas, doc) -> None:
+        canvas.saveState()
+        canvas.setFont("Helvetica", 9)
+        canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 18, f"Page {canvas.getPageNumber()}")
+        canvas.restoreState()
+
     styles = getSampleStyleSheet()
     table_header_style = styles["BodyText"].clone("CenteredTableHeader")
     table_header_style.alignment = 1
@@ -999,7 +1005,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         ]
     )
     measurement_document = SectionPageNumberDocTemplate(BytesIO(), **document_options)
-    measurement_document.build(list(story))
+    measurement_document.build(list(story), onFirstPage=draw_page_number, onLaterPages=draw_page_number)
     for row in report_data["table_of_contents_rows"]:
         page_number = measurement_document.section_page_numbers.get(row["anchor"])
         if page_number:
@@ -1010,7 +1016,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             story[story_index] = updated_contents_table
             break
     document = SectionPageNumberDocTemplate(str(output_path), **document_options)
-    document.build(story)
+    document.build(story, onFirstPage=draw_page_number, onLaterPages=draw_page_number)
     return True
 
 
@@ -1018,13 +1024,15 @@ def escape_pdf_text(value: str) -> str:
     return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def make_text_page(lines: list[str], font_size: int = 12) -> str:
+def make_text_page(lines: list[str], font_size: int = 12, page_number: int | None = None) -> str:
     y_position = 740
     content = ["BT", f"/F1 {font_size} Tf"]
     for line in lines:
         content.append(f"1 0 0 1 72 {y_position} Tm ({escape_pdf_text(line)}) Tj")
         y_position -= 18
     content.append("ET")
+    if page_number is not None:
+        content.extend(["BT", "/F1 9 Tf", f"1 0 0 1 540 18 Tm ({escape_pdf_text(f'Page {page_number}')}) Tj", "ET"])
     return "\n".join(content)
 
 
@@ -1116,8 +1124,8 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         false_positive_lines.append(
             f"{row['poam_type']:<18}  {row['ongoing']:>7}  {row['completed']:>9}  {row['accepted']:>8}"
         )
-    page_streams = [
-        make_text_page(
+    raw_page_lines = [
+        (
             [
                 report_data["report_title"],
                 "",
@@ -1127,16 +1135,15 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
                 "",
                 *contents_lines,
             ],
-            font_size=14,
+            14,
         ),
-        make_text_page(
-            status_lines
-        ),
-        make_text_page(raw_severity_type_lines),
-        make_text_page(residual_risk_mitigations_type_lines),
-        make_text_page(scheduled_completion_lines),
-        make_text_page(false_positive_lines),
+        (status_lines, 12),
+        (raw_severity_type_lines, 12),
+        (residual_risk_mitigations_type_lines, 12),
+        (scheduled_completion_lines, 12),
+        (false_positive_lines, 12),
     ]
+    page_streams = [make_text_page(lines, font_size=font_size, page_number=page_number) for page_number, (lines, font_size) in enumerate(raw_page_lines, start=1)]
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"",
