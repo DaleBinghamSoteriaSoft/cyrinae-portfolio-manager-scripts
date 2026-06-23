@@ -40,7 +40,7 @@ SOURCE_TYPE_DEFINITIONS = [
 REPORT_SECTIONS = [
     {"title": "POAM Totals by Severity and Status", "anchor": "poam-totals-by-severity-and-status", "page_number": "2"},
     {"title": "POAM Details by Item Type", "anchor": "poam-details-by-item-type", "page_number": "3"},
-    {"title": "POAM Completions Dates Overview", "anchor": "poam-completion-dates-overview", "page_number": "4"},
+    {"title": "POAM Completions Dates Overdue", "anchor": "poam-completion-dates-overdue", "page_number": "4"},
 ]
 
 
@@ -941,9 +941,9 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Spacer(1, 8),
         build_source_type_boxes(),
         PageBreak(),
-        anchor_marker("poam-completion-dates-overview"),
+        anchor_marker("poam-completion-dates-overdue"),
         overdue_page_anchor(1),
-        Paragraph("POAM Completions Dates Overview", styles["Heading1"]),
+        Paragraph("POAM Completions Dates Overdue", styles["Heading1"]),
         Spacer(1, 8),
         *build_items_preview_panel(),
     ]
@@ -952,7 +952,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             [
                 PageBreak(),
                 overdue_page_anchor(page_number),
-                Paragraph("POAM Completions Dates Overview", styles["Heading1"]),
+                Paragraph("POAM Completions Dates Overdue", styles["Heading1"]),
                 Spacer(1, 8),
                 *build_items_preview_panel(page_number),
             ]
