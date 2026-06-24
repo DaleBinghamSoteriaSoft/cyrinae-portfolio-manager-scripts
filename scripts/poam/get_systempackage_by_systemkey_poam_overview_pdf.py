@@ -142,7 +142,7 @@ def parse_json_object_from_output(output: str) -> dict:
         return parsed
     print("ERROR: Could not find a JSON object in the system package JSON script output.")
     print(output)
-    sys.exit(1)
+    raise ValueError("Could not find a JSON object in the system package JSON script output.")
 
 
 def safe_text(value) -> str:
