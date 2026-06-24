@@ -1519,6 +1519,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			if anchor and anchor not in self.section_page_numbers:
 				self.section_page_numbers[anchor] = self.page
 
+	def draw_page_number(canvas, doc) -> None:
+		canvas.saveState()
+		canvas.setFont("Helvetica", 9)
+		canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 18, f"Page {canvas.getPageNumber()}")
+		canvas.restoreState()
+
 	styles = getSampleStyleSheet()
 	table_header_style = styles["BodyText"].clone("CenteredTableHeader")
 	table_header_style.alignment = 1
@@ -2670,7 +2676,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		title=report_data["report_title"],
 		author="OpenRMF Professional External API Scripts",
 	)
-	measurement_document.build(copy.deepcopy(story))
+	measurement_document.build(copy.deepcopy(story), onFirstPage=draw_page_number, onLaterPages=draw_page_number)
 	for row in report_data["table_of_contents_rows"]:
 		page_number = measurement_document.section_page_numbers.get(row["anchor"])
 		if page_number:
@@ -2680,7 +2686,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		if flowable is contents_table:
 			story[index] = updated_contents_table
 			break
-	document.build(story)
+	document.build(story, onFirstPage=draw_page_number, onLaterPages=draw_page_number)
 	return True
 
 
@@ -2688,13 +2694,15 @@ def escape_pdf_text(value: str) -> str:
 	return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def make_text_page(lines: list[str], font_size: int = 12) -> str:
+def make_text_page(lines: list[str], font_size: int = 12, page_number: int | None = None) -> str:
 	y_position = 740
 	content = ["BT", f"/F1 {font_size} Tf"]
 	for line in lines:
 		content.append(f"1 0 0 1 72 {y_position} Tm ({escape_pdf_text(line)}) Tj")
 		y_position -= 18
 	content.append("ET")
+	if page_number is not None:
+		content.extend(["BT", "/F1 9 Tf", f"1 0 0 1 540 18 Tm ({escape_pdf_text(f'Page {page_number}')}) Tj", "ET"])
 	return "\n".join(content)
 
 
@@ -2933,8 +2941,8 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 	risk_settings_lines.extend([f"{row['key']}: {row['value']}" for row in report_data["risk_settings_rows"]])
 	contents_lines = ["Page Title                                      Page Number", "--------------------------------------------  -----------"]
 	contents_lines.extend([f"{row['title']:<44}  {row['page_number']:>11}" for row in report_data["table_of_contents_rows"]])
-	page_streams = [
-		make_text_page(
+	raw_pages = [
+		(
 			[
 			report_data["report_title"],
 			"",
@@ -2947,17 +2955,18 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 			"",
 			*contents_lines,
 			],
-			font_size=14,
+			14,
 		),
-		make_text_page(cat_status_lines),
-		make_text_page(checklist_missing_data_risk_lines),
-		make_text_page(cyber_readiness_score_lines),
-		make_text_page(patch_vulnerability_risk_lines),
-		*[make_text_page(poam_risk_area_lines[index:index + 36]) for index in range(0, len(poam_risk_area_lines), 36)],
-		make_text_page(compliance_risk_lines),
-		make_text_page(pps_boundaries_risk_lines),
-		*[make_text_page(risk_settings_lines[index:index + 36]) for index in range(0, len(risk_settings_lines), 36)],
+		(cat_status_lines, 12),
+		(checklist_missing_data_risk_lines, 12),
+		(cyber_readiness_score_lines, 12),
+		(patch_vulnerability_risk_lines, 12),
+		*[(poam_risk_area_lines[index:index + 36], 12) for index in range(0, len(poam_risk_area_lines), 36)],
+		(compliance_risk_lines, 12),
+		(pps_boundaries_risk_lines, 12),
+		*[(risk_settings_lines[index:index + 36], 12) for index in range(0, len(risk_settings_lines), 36)],
 	]
+	page_streams = [make_text_page(lines, font_size=font_size, page_number=page_number) for page_number, (lines, font_size) in enumerate(raw_pages, start=1)]
 	objects = [
 		b"<< /Type /Catalog /Pages 2 0 R >>",
 		b"",

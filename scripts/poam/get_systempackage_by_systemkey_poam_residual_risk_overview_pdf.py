@@ -676,6 +676,9 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         "bottomMargin": 36,
     }
     contents_table = build_contents_table()
+    framework_level_paragraphs = [Paragraph(f"&nbsp;&nbsp;{html.escape(format_framework_level(level))}", styles["Normal"]) for level in report_data["framework_levels"]]
+    if not framework_level_paragraphs:
+        framework_level_paragraphs = [Paragraph("&nbsp;&nbsp;Unknown", styles["Normal"])]
     story = [
         Paragraph(report_data["report_title"], styles["Title"]),
         Spacer(1, 10),
@@ -688,11 +691,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Paragraph(f"Framework Acronym: {html.escape(report_data['framework_acronym'])}", styles["Normal"]),
         Paragraph(f"Framework Version: {html.escape(report_data['framework_version'])}", styles["Normal"]),
         Paragraph("Framework Levels:", styles["Normal"]),
-        *(
-            [Paragraph(html.escape(format_framework_level(level)), styles["Normal"]) for level in report_data["framework_levels"]]
-            if report_data["framework_levels"]
-            else [Paragraph("None returned.", styles["Normal"])]
-        ),
+        *framework_level_paragraphs,
         Spacer(1, 18),
         contents_table,
         PageBreak(),
@@ -745,6 +744,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
     ongoing_type_risk_totals = report_data["ongoing_type_risk_totals"]
     contents_lines = ["Page Title                                      Page Number", "--------------------------------------------  -----------"]
     contents_lines.extend([f"{row['title']:<44}  {row['page_number']:>11}" for row in report_data["table_of_contents_rows"]])
+    framework_level_lines = [f"  {format_framework_level(level)}" for level in report_data["framework_levels"]] or ["  Unknown"]
     cover_lines = [
         report_data["report_title"],
         "",
@@ -757,7 +757,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         f"Framework Acronym: {report_data['framework_acronym']}",
         f"Framework Version: {report_data['framework_version']}",
         "Framework Levels:",
-        *([f"- {format_framework_level(level)}" for level in report_data["framework_levels"]] or ["None returned."]),
+        *framework_level_lines,
         "",
         *contents_lines,
     ]
