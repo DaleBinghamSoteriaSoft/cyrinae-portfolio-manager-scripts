@@ -8,6 +8,8 @@ This repo is for Python, Pandas and other libraries to do higher level processin
 
 This is used for testing python and pandas processing on larger CSV type datasets exported from [OpenRMF Professional](https://www.soteriasoft.com/products/openrmf-professional.html) by [Soteria Software](https://www.soteriasoft.com).
 
+We leverage the APIs in the <a href="https://github.com/SoteriaSoftwareLLC/openrmfpro-automation">Automation Repo</a> and combine them here to do higher level features and calculations using your OpenRMF<sup>&reg;</sup> Professional data.
+
 CYRINAE is the all encompassing solution of the following items:
 - OpenRMF Professional
 - Elastic AI Service Provider Interface (SPI)
