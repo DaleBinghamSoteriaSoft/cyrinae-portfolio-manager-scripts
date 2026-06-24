@@ -156,6 +156,30 @@ def safe_filename_value(value: str) -> str:
     return safe_value.strip(".-") or "unknown-system"
 
 
+def build_framework_levels(package_framework: dict) -> list[dict[str, str]]:
+    framework_levels = package_framework.get("frameworkLevels", [])
+    if not isinstance(framework_levels, list):
+        return []
+
+    levels = []
+    for level in framework_levels:
+        if not isinstance(level, dict):
+            continue
+        category = safe_text(level.get("levelCategory")).strip()
+        value = safe_text(level.get("levelValue")).strip()
+        if category or value:
+            levels.append({"category": category, "value": value})
+    return levels
+
+
+def format_framework_level(level: dict[str, str]) -> str:
+    category = safe_text(level.get("category")).strip()
+    value = safe_text(level.get("value")).strip()
+    if category and value:
+        return f"{category}: {value}"
+    return category or value or "Unknown"
+
+
 def report_title_for_system(system_key: str, system_title: str) -> str:
     system_title_text = safe_text(system_title).strip()
     if system_title_text:
@@ -554,6 +578,12 @@ def build_report_data(poamdata, system_key: str, system_package=None) -> dict:
     if not isinstance(system_package, dict):
         system_package = {}
 
+    package_framework = system_package.get("packageFramework", {})
+    if not isinstance(package_framework, dict):
+        package_framework = {}
+
+    framework_levels = build_framework_levels(package_framework)
+
     system_title = safe_text(system_package.get("title")).strip() or first_system_metadata_value(
         poamdata,
         records,
@@ -570,6 +600,10 @@ def build_report_data(poamdata, system_key: str, system_package=None) -> dict:
         "report_title": report_title_for_system(system_key, system_title),
         "system_title": system_title or "Unknown",
         "system_description": system_description or "Unknown",
+        "framework_title": safe_text(package_framework.get("frameworkTitle")).strip() or "Unknown",
+        "framework_acronym": safe_text(package_framework.get("frameworkAcronym")).strip() or "Unknown",
+        "framework_version": safe_text(package_framework.get("frameworkVersion")).strip() or "Unknown",
+        "framework_levels": framework_levels,
         "status_totals": build_status_totals(records),
         "type_status_rows": build_type_status_rows(records),
         "scheduled_completion_type_status_rows": build_scheduled_completion_type_status_rows(records),
@@ -973,6 +1007,9 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         "author": "OpenRMF Professional External API Scripts",
     }
     contents_table = build_contents_table()
+    framework_level_paragraphs = [Paragraph(f"&nbsp;&nbsp;{html.escape(format_framework_level(level))}", styles["Normal"]) for level in report_data["framework_levels"]]
+    if not framework_level_paragraphs:
+        framework_level_paragraphs = [Paragraph("&nbsp;&nbsp;Unknown", styles["Normal"])]
     story = [
         Paragraph(report_data["report_title"], styles["Title"]),
         Spacer(1, 18),
@@ -980,6 +1017,11 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
         Paragraph(f"System Title: {html.escape(report_data['system_title'])}", styles["Normal"]),
         Paragraph(f"Description: {html.escape(report_data['system_description'])}", styles["Normal"]),
+        Paragraph(f"Framework Title: {html.escape(report_data['framework_title'])}", styles["Normal"]),
+        Paragraph(f"Framework Acronym: {html.escape(report_data['framework_acronym'])}", styles["Normal"]),
+        Paragraph(f"Framework Version: {html.escape(report_data['framework_version'])}", styles["Normal"]),
+        Paragraph("Framework Levels:", styles["Normal"]),
+        *framework_level_paragraphs,
         Spacer(1, 18),
         Paragraph("Table of Contents", styles["Heading2"]),
         Spacer(1, 8),
@@ -1173,6 +1215,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         false_positive_lines.append(
             f"{row['poam_type']:<18}  {row['ongoing']:>7}  {row['completed']:>9}  {row['accepted']:>8}"
         )
+    framework_level_lines = [f"  {format_framework_level(level)}" for level in report_data["framework_levels"]] or ["  Unknown"]
     raw_page_lines = [
         (
             [
@@ -1182,6 +1225,11 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
                 f"System Key: {report_data['system_key']}",
                 f"System Title: {report_data['system_title']}",
                 f"Description: {report_data['system_description']}",
+                f"Framework Title: {report_data['framework_title']}",
+                f"Framework Acronym: {report_data['framework_acronym']}",
+                f"Framework Version: {report_data['framework_version']}",
+                "Framework Levels:",
+                *framework_level_lines,
                 "",
                 *contents_lines,
             ],
