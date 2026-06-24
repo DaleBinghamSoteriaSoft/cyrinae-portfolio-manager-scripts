@@ -33,6 +33,7 @@ from pathlib import Path
 
 REQUIRED_ARGUMENT_COUNT = 5
 SOURCE_SCRIPT_NAME = "get_systempackage_by_systemkey_poam_json.py"
+SYSTEM_PACKAGE_SOURCE_SCRIPT_NAME = "get_systempackage_by_systemkey_json.py"
 STATUS_COLUMNS = ["Ongoing", "Completed", "Accepted"]
 RISK_COLUMNS = ["Very High", "High", "Moderate", "Low", "Very Low"]
 POAM_TYPE_DEFINITIONS = [
@@ -103,6 +104,22 @@ def call_poam_json_script(arguments: list[str]) -> str:
     return result.stdout
 
 
+def call_systempackage_json_script(arguments: list[str]) -> str:
+    source_script = Path(__file__).resolve().parents[1] / "system-package" / SYSTEM_PACKAGE_SOURCE_SCRIPT_NAME
+    command = [get_project_python_executable(), str(source_script), *arguments]
+    result = subprocess.run(command, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        print("ERROR: The system package JSON script failed.")
+        if result.stdout.strip():
+            print(result.stdout.strip())
+        if result.stderr.strip():
+            print(result.stderr.strip())
+        sys.exit(result.returncode)
+
+    return result.stdout
+
+
 def parse_json_value_from_output(output: str):
     decoder = json.JSONDecoder()
     for index, character in enumerate(output):
@@ -119,6 +136,15 @@ def parse_json_value_from_output(output: str):
     raise ValueError("Could not find JSON in the POAM JSON script output.")
 
 
+def parse_json_object_from_output(output: str) -> dict:
+    parsed = parse_json_value_from_output(output)
+    if isinstance(parsed, dict):
+        return parsed
+    print("ERROR: Could not find a JSON object in the system package JSON script output.")
+    print(output)
+    raise ValueError("Could not find a JSON object in the system package JSON script output.")
+
+
 def safe_text(value) -> str:
     if value is None:
         return ""
@@ -128,6 +154,30 @@ def safe_text(value) -> str:
 def safe_filename_value(value: str) -> str:
     safe_value = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
     return safe_value.strip(".-") or "unknown-system"
+
+
+def build_framework_levels(package_framework: dict) -> list[dict[str, str]]:
+    framework_levels = package_framework.get("frameworkLevels", [])
+    if not isinstance(framework_levels, list):
+        return []
+
+    levels = []
+    for level in framework_levels:
+        if not isinstance(level, dict):
+            continue
+        category = safe_text(level.get("levelCategory")).strip()
+        value = safe_text(level.get("levelValue")).strip()
+        if category or value:
+            levels.append({"category": category, "value": value})
+    return levels
+
+
+def format_framework_level(level: dict[str, str]) -> str:
+    category = safe_text(level.get("category")).strip()
+    value = safe_text(level.get("value")).strip()
+    if category and value:
+        return f"{category}: {value}"
+    return category or value or "Unknown"
 
 
 def report_title_for_system(system_key: str, system_title: str) -> str:
@@ -510,18 +560,50 @@ def build_type_residual_risk_mitigations_rows(records: list[dict]) -> list[dict[
     ]
 
 
-def build_report_data(poamdata, system_key: str) -> dict:
-    records = poam_records(poamdata)
-    system_title = ""
+def first_system_metadata_value(poamdata, records: list[dict], keys: list[str]) -> str:
+    if isinstance(poamdata, dict):
+        value = first_value(poamdata, keys)
+        if value:
+            return value
+
     for record in records:
-        system_title = first_value(record, ["systemTitle", "title", "systemName"])
-        if system_title:
-            break
+        value = first_value(record, keys)
+        if value:
+            return value
+    return ""
+
+
+def build_report_data(poamdata, system_key: str, system_package=None) -> dict:
+    records = poam_records(poamdata)
+    if not isinstance(system_package, dict):
+        system_package = {}
+
+    package_framework = system_package.get("packageFramework", {})
+    if not isinstance(package_framework, dict):
+        package_framework = {}
+
+    framework_levels = build_framework_levels(package_framework)
+
+    system_title = safe_text(system_package.get("title")).strip() or first_system_metadata_value(
+        poamdata,
+        records,
+        ["systemTitle", "title", "systemName"],
+    )
+    system_description = safe_text(system_package.get("description")).strip() or first_system_metadata_value(
+        poamdata,
+        records,
+        ["systemDescription", "systemDescriptionString", "systemDesc", "systemSummary", "systemOverview"],
+    )
 
     return {
         "system_key": system_key,
         "report_title": report_title_for_system(system_key, system_title),
         "system_title": system_title or "Unknown",
+        "system_description": system_description or "Unknown",
+        "framework_title": safe_text(package_framework.get("frameworkTitle")).strip() or "Unknown",
+        "framework_acronym": safe_text(package_framework.get("frameworkAcronym")).strip() or "Unknown",
+        "framework_version": safe_text(package_framework.get("frameworkVersion")).strip() or "Unknown",
+        "framework_levels": framework_levels,
         "status_totals": build_status_totals(records),
         "type_status_rows": build_type_status_rows(records),
         "scheduled_completion_type_status_rows": build_scheduled_completion_type_status_rows(records),
@@ -553,6 +635,12 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             anchor = getattr(flowable, "_toc_anchor", None)
             if anchor and anchor not in self.section_page_numbers:
                 self.section_page_numbers[anchor] = self.page
+
+    def draw_page_number(canvas, doc) -> None:
+        canvas.saveState()
+        canvas.setFont("Helvetica", 9)
+        canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 18, f"Page {canvas.getPageNumber()}")
+        canvas.restoreState()
 
     styles = getSampleStyleSheet()
     table_header_style = styles["BodyText"].clone("CenteredTableHeader")
@@ -919,12 +1007,21 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         "author": "OpenRMF Professional External API Scripts",
     }
     contents_table = build_contents_table()
+    framework_level_paragraphs = [Paragraph(f"&nbsp;&nbsp;{html.escape(format_framework_level(level))}", styles["Normal"]) for level in report_data["framework_levels"]]
+    if not framework_level_paragraphs:
+        framework_level_paragraphs = [Paragraph("&nbsp;&nbsp;Unknown", styles["Normal"])]
     story = [
         Paragraph(report_data["report_title"], styles["Title"]),
         Spacer(1, 18),
         Paragraph(f"Date Generated: {html.escape(report_data['generated_at'])}", styles["Normal"]),
         Paragraph(f"System Key: {html.escape(report_data['system_key'])}", styles["Normal"]),
         Paragraph(f"System Title: {html.escape(report_data['system_title'])}", styles["Normal"]),
+        Paragraph(f"Description: {html.escape(report_data['system_description'])}", styles["Normal"]),
+        Paragraph(f"Framework Title: {html.escape(report_data['framework_title'])}", styles["Normal"]),
+        Paragraph(f"Framework Acronym: {html.escape(report_data['framework_acronym'])}", styles["Normal"]),
+        Paragraph(f"Framework Version: {html.escape(report_data['framework_version'])}", styles["Normal"]),
+        Paragraph("Framework Levels:", styles["Normal"]),
+        *framework_level_paragraphs,
         Spacer(1, 18),
         Paragraph("Table of Contents", styles["Heading2"]),
         Spacer(1, 8),
@@ -999,7 +1096,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         ]
     )
     measurement_document = SectionPageNumberDocTemplate(BytesIO(), **document_options)
-    measurement_document.build(list(story))
+    measurement_document.build(list(story), onFirstPage=draw_page_number, onLaterPages=draw_page_number)
     for row in report_data["table_of_contents_rows"]:
         page_number = measurement_document.section_page_numbers.get(row["anchor"])
         if page_number:
@@ -1010,7 +1107,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             story[story_index] = updated_contents_table
             break
     document = SectionPageNumberDocTemplate(str(output_path), **document_options)
-    document.build(story)
+    document.build(story, onFirstPage=draw_page_number, onLaterPages=draw_page_number)
     return True
 
 
@@ -1018,13 +1115,15 @@ def escape_pdf_text(value: str) -> str:
     return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def make_text_page(lines: list[str], font_size: int = 12) -> str:
+def make_text_page(lines: list[str], font_size: int = 12, page_number: int | None = None) -> str:
     y_position = 740
     content = ["BT", f"/F1 {font_size} Tf"]
     for line in lines:
         content.append(f"1 0 0 1 72 {y_position} Tm ({escape_pdf_text(line)}) Tj")
         y_position -= 18
     content.append("ET")
+    if page_number is not None:
+        content.extend(["BT", "/F1 9 Tf", f"1 0 0 1 540 18 Tm ({escape_pdf_text(f'Page {page_number}')}) Tj", "ET"])
     return "\n".join(content)
 
 
@@ -1116,27 +1215,33 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         false_positive_lines.append(
             f"{row['poam_type']:<18}  {row['ongoing']:>7}  {row['completed']:>9}  {row['accepted']:>8}"
         )
-    page_streams = [
-        make_text_page(
+    framework_level_lines = [f"  {format_framework_level(level)}" for level in report_data["framework_levels"]] or ["  Unknown"]
+    raw_page_lines = [
+        (
             [
                 report_data["report_title"],
                 "",
                 f"Date Generated: {report_data['generated_at']}",
                 f"System Key: {report_data['system_key']}",
                 f"System Title: {report_data['system_title']}",
+                f"Description: {report_data['system_description']}",
+                f"Framework Title: {report_data['framework_title']}",
+                f"Framework Acronym: {report_data['framework_acronym']}",
+                f"Framework Version: {report_data['framework_version']}",
+                "Framework Levels:",
+                *framework_level_lines,
                 "",
                 *contents_lines,
             ],
-            font_size=14,
+            14,
         ),
-        make_text_page(
-            status_lines
-        ),
-        make_text_page(raw_severity_type_lines),
-        make_text_page(residual_risk_mitigations_type_lines),
-        make_text_page(scheduled_completion_lines),
-        make_text_page(false_positive_lines),
+        (status_lines, 12),
+        (raw_severity_type_lines, 12),
+        (residual_risk_mitigations_type_lines, 12),
+        (scheduled_completion_lines, 12),
+        (false_positive_lines, 12),
     ]
+    page_streams = [make_text_page(lines, font_size=font_size, page_number=page_number) for page_number, (lines, font_size) in enumerate(raw_page_lines, start=1)]
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"",
@@ -1192,9 +1297,10 @@ if len(sys.argv) < REQUIRED_ARGUMENT_COUNT:
     sys.exit(1)
 
 system_key = sys.argv[4]
+system_package = parse_json_object_from_output(call_systempackage_json_script(sys.argv[1:]))
 poam_output = call_poam_json_script(sys.argv[1:])
 poamdata = parse_json_value_from_output(poam_output)
-report_data = build_report_data(poamdata, system_key)
+report_data = build_report_data(poamdata, system_key, system_package)
 output_filename = f"OpenRMFPro-POAM-Overview-{safe_filename_value(report_data['system_key'])}.pdf"
 output_path = Path(output_filename)
 pdf_writer = write_pdf(output_path, report_data)

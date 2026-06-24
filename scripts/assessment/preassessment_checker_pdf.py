@@ -952,6 +952,13 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 			]
 		)
 	)
+
+	def draw_page_number(canvas, document) -> None:
+		canvas.saveState()
+		canvas.setFont("Helvetica", 9)
+		canvas.drawRightString(document.pagesize[0] - document.rightMargin, 18, f"Page {canvas.getPageNumber()}")
+		canvas.restoreState()
+
 	document = SimpleDocTemplate(
 		str(output_path),
 		pagesize=letter,
@@ -972,7 +979,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		Spacer(1, 12),
 		check_table,
 	]
-	document.build(story)
+	document.build(story, onFirstPage=draw_page_number, onLaterPages=draw_page_number)
 	return True
 
 
@@ -1014,7 +1021,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 			result_value = row["result"].upper() if index == 0 else ""
 			checked_lines.append(f"{item_line:<66}  {result_value:>9}")
 
-	def make_text_stream(lines: list[str]) -> str:
+	def make_text_stream(lines: list[str], page_number: int) -> str:
 		wrapped_lines = []
 		for line in lines:
 			wrapped_lines.extend(wrap_pdf_line(line))
@@ -1025,11 +1032,12 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 				stream_lines.append("0 -20 Td")
 			stream_lines.append(f"({pdf_text(line)}) Tj")
 		stream_lines.append("ET")
+		stream_lines.extend(["BT", "/F1 9 Tf", f"1 0 0 1 540 18 Tm ({pdf_text(f'Page {page_number}')}) Tj", "ET"])
 		return "\n".join(stream_lines)
 
 	all_lines = [*page_one_lines, *checked_lines]
 	page_chunks = [all_lines[index:index + 34] for index in range(0, len(all_lines), 34)] or [all_lines]
-	page_streams = [make_text_stream(page_chunk) for page_chunk in page_chunks]
+	page_streams = [make_text_stream(page_chunk, page_number) for page_number, page_chunk in enumerate(page_chunks, start=1)]
 
 	objects = [
 		b"<< /Type /Catalog /Pages 2 0 R >>",

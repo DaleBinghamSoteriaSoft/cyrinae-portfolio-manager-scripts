@@ -40,7 +40,7 @@ SOURCE_TYPE_DEFINITIONS = [
 REPORT_SECTIONS = [
     {"title": "POAM Totals by Severity and Status", "anchor": "poam-totals-by-severity-and-status", "page_number": "2"},
     {"title": "POAM Details by Item Type", "anchor": "poam-details-by-item-type", "page_number": "3"},
-    {"title": "POAM Completions Dates Overview", "anchor": "poam-completion-dates-overview", "page_number": "4"},
+    {"title": "POAM Completions Dates Overdue", "anchor": "poam-completion-dates-overdue", "page_number": "4"},
 ]
 
 
@@ -909,6 +909,9 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         "bottomMargin": 36,
     }
     contents_table = build_contents_table()
+    framework_level_paragraphs = [Paragraph(f"&nbsp;&nbsp;{html.escape(format_framework_level(level))}", styles["Normal"]) for level in report_data["framework_levels"]]
+    if not framework_level_paragraphs:
+        framework_level_paragraphs = [Paragraph("&nbsp;&nbsp;Unknown", styles["Normal"])]
     story = [
         Paragraph(report_data["report_title"], styles["Title"]),
         Spacer(1, 12),
@@ -921,11 +924,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Paragraph(f"Framework Acronym: {html.escape(report_data['framework_acronym'])}", styles["Normal"]),
         Paragraph(f"Framework Version: {html.escape(report_data['framework_version'])}", styles["Normal"]),
         Paragraph("Framework Levels:", styles["Normal"]),
-        *(
-            [Paragraph(html.escape(format_framework_level(level)), styles["Normal"]) for level in report_data["framework_levels"]]
-            if report_data["framework_levels"]
-            else [Paragraph("None returned.", styles["Normal"])]
-        ),
+        *framework_level_paragraphs,
         Spacer(1, 18),
         contents_table,
         PageBreak(),
@@ -941,9 +940,9 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         Spacer(1, 8),
         build_source_type_boxes(),
         PageBreak(),
-        anchor_marker("poam-completion-dates-overview"),
+        anchor_marker("poam-completion-dates-overdue"),
         overdue_page_anchor(1),
-        Paragraph("POAM Completions Dates Overview", styles["Heading1"]),
+        Paragraph("POAM Completions Dates Overdue", styles["Heading1"]),
         Spacer(1, 8),
         *build_items_preview_panel(),
     ]
@@ -952,7 +951,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
             [
                 PageBreak(),
                 overdue_page_anchor(page_number),
-                Paragraph("POAM Completions Dates Overview", styles["Heading1"]),
+                Paragraph("POAM Completions Dates Overdue", styles["Heading1"]),
                 Spacer(1, 8),
                 *build_items_preview_panel(page_number),
             ]
@@ -1003,6 +1002,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
     status_totals = report_data["status_totals"]
     contents_lines = ["Page Title                                      Page Number", "--------------------------------------------  -----------"]
     contents_lines.extend([f"{row['title']:<44}  {row['page_number']:>11}" for row in report_data["table_of_contents_rows"]])
+    framework_level_lines = [f"  {format_framework_level(level)}" for level in report_data["framework_levels"]] or ["  Unknown"]
     cover_lines = [
         report_data["report_title"],
         "",
@@ -1015,7 +1015,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
         f"Framework Acronym: {report_data['framework_acronym']}",
         f"Framework Version: {report_data['framework_version']}",
         "Framework Levels:",
-        *([f"- {format_framework_level(level)}" for level in report_data["framework_levels"]] or ["None returned."]),
+        *framework_level_lines,
         "",
         *contents_lines,
     ]
