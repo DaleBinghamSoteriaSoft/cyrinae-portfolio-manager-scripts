@@ -226,6 +226,6 @@ __marimo__/
 example-data-files/cve/*.json
 example-data-files/cve/*.csv
 example-data-files/cve/*.zip
-example-data-files/kve/*.json
-example-data-files/kve/*.csv
+example-data-files/kev/*.json
+example-data-files/kev/*.csv
 example-data-files/cve/*.zip
