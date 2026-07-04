@@ -2,6 +2,8 @@
 
 CYRINAE = Cyber Risk Integrated Automation Engine
 
+![CYRINAE](docs/Security_Data_to_Intelligence_Ecosystem.png)
+
 ## What this is For
 
 This repo is for Python, Pandas and other libraries to do higher level processing of cyber compliance, hygiene, and security data.
