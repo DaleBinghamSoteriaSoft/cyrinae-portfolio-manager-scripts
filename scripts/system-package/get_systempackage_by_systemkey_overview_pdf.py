@@ -724,16 +724,14 @@ def poam_resulting_risk(record: dict) -> str:
     resulting_risk = first_value(
         record,
         [
-            "residualRiskLevelMitigations",
-            "residualRiskLevelMitigation",
+            "residualRiskLevel",
             "resultingRisk",
             "resultingRiskLevel",
             "residualRisk",
-            "residualRiskLevel",
         ],
     )
     if not resulting_risk:
-        resulting_risk = first_nested_value(record, [["risk", "residualRiskLevelMitigations"], ["risk", "resultingRisk"]])
+        resulting_risk = first_nested_value(record, [["risk", "residualRiskLevel"], ["risk", "resultingRisk"]])
     return normalize_resulting_risk(resulting_risk)
 
 

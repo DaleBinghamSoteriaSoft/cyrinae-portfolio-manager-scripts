@@ -59,7 +59,7 @@ RAW_SEVERITY_COLUMNS = ["Critical", "High", "Medium", "Low"]
 REPORT_SECTIONS = [
     {"title": "POAM Status", "anchor": "poam-status", "page_number": "2"},
     {"title": "POAM Raw Severity by POAM Item Type", "anchor": "poam-raw-severity-by-poam-item-type", "page_number": "3"},
-    {"title": "Total by POAM Residual Risk Mitigations by POAM Type", "anchor": "poam-residual-risk-mitigations-by-type", "page_number": "4"},
+    {"title": "Total by POAM Residual Risk by POAM Type", "anchor": "poam-residual-risk-mitigations-by-type", "page_number": "4"},
     {"title": "Scheduled Completion by POAM Status and Type", "anchor": "scheduled-completion-by-poam-status-and-type", "page_number": "5"},
     {"title": "False Positive by POAM Status and Type", "anchor": "false-positive-by-poam-status-and-type", "page_number": "6"},
 ]
@@ -530,7 +530,7 @@ def build_raw_severity_item_type_rows(records: list[dict]) -> list[dict[str, str
 
 
 def poam_residual_risk_mitigations_risk(record: dict) -> str:
-    residual_risk = record.get("residualRiskLevelMitigations")
+    residual_risk = record.get("residualRiskLevel")
     if safe_text(residual_risk).strip().lower() in {"", "none", "null"}:
         return ""
     return normalize_risk_value(residual_risk)
@@ -925,7 +925,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
         )
         axis.set_xticks([index + 0.5 for index in range(len(column_labels))], labels=column_labels, rotation=30, ha="right")
         axis.set_yticks([index + 0.5 for index in range(len(row_labels))], labels=row_labels)
-        axis.set_xlabel("residualRiskLevelMitigations")
+        axis.set_xlabel("Residual Risk")
         axis.set_ylabel("POAM Item Type")
         axis.set_title(title)
         axis.invert_yaxis()
@@ -998,7 +998,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     residual_risk_mitigations_type_heatmap_image = build_risk_2d_histogram(
         report_data["type_residual_risk_mitigations_rows"],
         "poam_type",
-        "POAM Residual Risk Mitigations Totals by POAM Type 2D Histogram",
+        "POAM Residual Risk Totals by POAM Type 2D Histogram",
     )
 
     document_options = {
@@ -1057,18 +1057,18 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict) -> bool:
     story.extend(
         [
             PageBreak(),
-            anchored_heading("Total by POAM Residual Risk Mitigations by POAM Type", "poam-residual-risk-mitigations-by-type"),
+            anchored_heading("Total by POAM Residual Risk by POAM Type", "poam-residual-risk-mitigations-by-type"),
             Spacer(1, 12),
             residual_risk_mitigations_type_table,
             Spacer(1, 18),
-            Paragraph("POAM Residual Risk Mitigations Totals by POAM Type 2D Histogram", styles["Heading2"]),
+            Paragraph("POAM Residual Risk Totals by POAM Type 2D Histogram", styles["Heading2"]),
             Spacer(1, 8),
         ]
     )
     if residual_risk_mitigations_type_heatmap_image:
         story.append(Image(residual_risk_mitigations_type_heatmap_image, width=500, height=240))
     else:
-        story.append(Paragraph("POAM Residual Risk Mitigations Totals by POAM Type 2D Histogram unavailable. Install matplotlib to render it.", styles["Normal"]))
+        story.append(Paragraph("POAM Residual Risk Totals by POAM Type 2D Histogram unavailable. Install matplotlib to render it.", styles["Normal"]))
     story.extend(
         [
             PageBreak(),
@@ -1164,7 +1164,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
     raw_severity_type_lines.extend(["", "POAM Raw Severity by POAM Item Type 2D Histogram unavailable in fallback PDF output."])
 
     residual_risk_mitigations_type_lines = [
-        "Total by POAM Residual Risk Mitigations by POAM Type",
+        "Total by POAM Residual Risk by POAM Type",
         "",
         "POAM Type                  Very High  High  Moderate  Low  Very Low",
         "-------------------------  ---------  ----  --------  ---  --------",
@@ -1174,7 +1174,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
             f"{row['poam_type']:<25}  {row['very_high']:>9}  {row['high']:>4}  {row['moderate']:>8}  {row['low']:>3}  {row['very_low']:>8}"
         )
     residual_risk_mitigations_type_lines.extend(
-        ["", "POAM Residual Risk Mitigations Totals by POAM Type 2D Histogram unavailable in fallback PDF output."]
+        ["", "POAM Residual Risk Totals by POAM Type 2D Histogram unavailable in fallback PDF output."]
     )
     scheduled_completion_lines = [
         "Scheduled Completion by POAM Status and Type",

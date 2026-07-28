@@ -2,7 +2,7 @@
 # ============================================================
 # OpenRMF Professional External API - Systempackage POAM Risk PDF
 # API Path   : GET /systempackage/{systemKey}/poam
-# Description: Calls get_systempackage_by_systemkey_poam_json.py and creates a PDF chart of Ongoing POAM residual risk mitigation totals.
+# Description: Calls get_systempackage_by_systemkey_poam_json.py and creates a PDF chart of Ongoing POAM residual risk totals.
 # ============================================================
 
 import html
@@ -262,30 +262,14 @@ def normalize_risk_value(value: str) -> str:
 
 
 def residual_risk_mitigation_value(record: dict) -> str:
-    risk_value = first_value(
-        record,
-        [
-            "residualRiskLevelMitigations",
-            "residualRiskLevelMitigation",
-            "resultingResidualRisk",
-            "resultingRisk",
-            "residualRiskMitigations",
-        ],
-    )
-    if not risk_value:
-        risk_value = first_nested_value(
-            record,
-            [
-                ["residualRiskLevelMitigations", "name"],
-                ["residualRiskLevelMitigation", "name"],
-                ["resultingResidualRisk", "name"],
-            ],
-        )
-    return risk_value
+    risk_value = record.get("residualRiskLevel")
+    if isinstance(risk_value, dict):
+        return safe_text(risk_value.get("name"))
+    return safe_text(risk_value)
 
 
 def residual_risk_level_mitigations_value(record: dict) -> str:
-    return safe_text(record.get("residualRiskLevelMitigations"))
+    return residual_risk_mitigation_value(record)
 
 
 def has_residual_risk_mitigation(record: dict) -> bool:
@@ -764,7 +748,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict) -> None:
     chart_lines = [
         "POAM Details by Residual Risk and Status",
         "",
-        "Residual Risk Mitigations | Ongoing Count",
+        "Residual Risk | Ongoing Count",
         "-------------------------- | -------------",
         "",
     ]

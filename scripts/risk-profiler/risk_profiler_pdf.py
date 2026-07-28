@@ -579,7 +579,7 @@ def scheduled_completion_value(record: dict) -> str:
 
 
 def residual_risk_mitigation_value(record: dict) -> str:
-	return safe_text(record.get("residualRiskLevelMitigations"))
+	return safe_text(record.get("residualRiskLevel"))
 
 
 def office_organization_value(record: dict) -> str:
@@ -846,8 +846,8 @@ def build_overall_poam_ongoing_residual_risk_rows(poam_data) -> list[dict[str, s
 		(
 			"POAM Residual Risk Not Set",
 			"Not Set",
-			"maxPOAMResidualRiskMitigationNotSetLowRisk",
-			"maxPOAMResidualRiskMitigationNotSetMediumRisk",
+			"maxPOAMResidualRiskNotSetLowRisk",
+			"maxPOAMResidualRiskNotSetMediumRisk",
 		),
 	]
 	rows = []
@@ -1875,7 +1875,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		[
 			["Metric", "Value"],
 			["Total POAM Records", poam_residual_risk_area["total_count"]],
-			["Empty Resulting Residual Risk Mitigation Fields", poam_residual_risk_area["empty_count"]],
+			["Empty Residual Risk Fields", poam_residual_risk_area["empty_count"]],
 			["Empty Percentage", poam_residual_risk_area["empty_percent"]],
 			["Risk", poam_residual_risk_area["risk"]],
 		],
@@ -1988,7 +1988,7 @@ def write_pdf_with_reportlab(output_path: Path, report_data: dict[str, str]) -> 
 		[
 			["Metric", "Value"],
 			["Ongoing Items", poam_ongoing_residual_risk_area["ongoing_count"]],
-			["Very High Resulting Residual Risk Mitigation Items", poam_ongoing_residual_risk_area["very_high_count"]],
+			["Very High Residual Risk Items", poam_ongoing_residual_risk_area["very_high_count"]],
 			["Very High Percentage of Ongoing Items", poam_ongoing_residual_risk_area["very_high_percent"]],
 			["Risk", poam_ongoing_residual_risk_area["risk"]],
 		],
@@ -2792,10 +2792,10 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		"Residual Risk",
 		"",
 		f"Total POAM Records: {poam_residual_risk_area['total_count']}",
-		f"High Empty Resulting Residual Risk Mitigation Fields: {poam_residual_risk_area['high_empty_count']}",
-		f"Moderate Empty Resulting Residual Risk Mitigation Fields: {poam_residual_risk_area['moderate_empty_count']}",
-		f"Low Empty Resulting Residual Risk Mitigation Fields: {poam_residual_risk_area['low_empty_count']}",
-		f"Empty Resulting Residual Risk Mitigation Fields: {poam_residual_risk_area['empty_count']}",
+		f"High Empty Residual Risk Fields: {poam_residual_risk_area['high_empty_count']}",
+		f"Moderate Empty Residual Risk Fields: {poam_residual_risk_area['moderate_empty_count']}",
+		f"Low Empty Residual Risk Fields: {poam_residual_risk_area['low_empty_count']}",
+		f"Empty Residual Risk Fields: {poam_residual_risk_area['empty_count']}",
 		f"Empty Percentage: {poam_residual_risk_area['empty_percent']}",
 		f"Risk: {poam_residual_risk_area['risk']}",
 	]
@@ -2823,7 +2823,7 @@ def write_minimal_pdf(output_path: Path, report_data: dict[str, str]) -> None:
 		"Ongoing Residual Risk",
 		"",
 		f"Ongoing Items: {poam_ongoing_residual_risk_area['ongoing_count']}",
-		f"Very High Resulting Residual Risk Mitigation Items: {poam_ongoing_residual_risk_area['very_high_count']}",
+		f"Very High Residual Risk Items: {poam_ongoing_residual_risk_area['very_high_count']}",
 		f"Very High Percentage of Ongoing Items: {poam_ongoing_residual_risk_area['very_high_percent']}",
 		f"Risk: {poam_ongoing_residual_risk_area['risk']}",
 	]

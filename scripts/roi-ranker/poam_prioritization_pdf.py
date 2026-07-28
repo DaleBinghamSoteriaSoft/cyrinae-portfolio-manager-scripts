@@ -193,7 +193,7 @@ def raw_severity(record: dict) -> str:
 
 
 def residual_risk_level_mitigation(record: dict) -> str:
-	return normalize_residual_risk(first_value(record, ["residualRiskLevelMitigations", "residualRiskLevelMitigation", "residualRisk", "residualRiskString", "resultingResidualRisk"]))
+	return normalize_residual_risk(first_value(record, ["residualRiskLevel"]))
 
 
 def security_check_value(record: dict) -> str:
@@ -257,7 +257,7 @@ def unnamed_device_count(record: dict) -> int:
 
 def severity_weight(raw_value: str, residual_value: str, weights: dict) -> int:
 	if residual_value:
-		key = "residualRiskLevelMitigation" + residual_value.replace(" ", "")
+		key = "residualRiskLevel" + residual_value.replace(" ", "")
 		return int(weights.get(key, 0))
 	key = "rawSeverity" + raw_value.replace(" ", "")
 	return int(weights.get(key, 0))
@@ -335,8 +335,8 @@ def build_impact_rows(poam_data) -> list[dict[str, str]]:
 def readable_weight_name(key: str) -> str:
 	if key.startswith("rawSeverity"):
 		return "Raw Severity: " + re.sub(r"(?<!^)(?=[A-Z])", " ", key.removeprefix("rawSeverity"))
-	if key.startswith("residualRiskLevelMitigation"):
-		return "Residual Risk Mitigation: " + re.sub(r"(?<!^)(?=[A-Z])", " ", key.removeprefix("residualRiskLevelMitigation"))
+	if key.startswith("residualRiskLevel"):
+		return "Residual Risk: " + re.sub(r"(?<!^)(?=[A-Z])", " ", key.removeprefix("residualRiskLevel"))
 	return re.sub(r"(?<!^)(?=[A-Z])", " ", key)
 
 
